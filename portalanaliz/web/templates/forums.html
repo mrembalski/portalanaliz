@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Forums{% endblock %}
+{% block content %}
+<h1>Forums</h1>
+<table>
+  <tr><th>Forum</th><th>Topics indexed</th><th>Topics archived</th></tr>
+  {% for forum, depth in rows %}
+  <tr>
+    <td style="padding-left:{{ 12 + depth * 22 }}px">
+      {% if forum.sub_only %}<span class="muted">{{ forum.name }}</span>
+      {% else %}<a href="/forums/{{ forum.id }}">{{ forum.name }}</a>{% endif %}
+    </td>
+    <td>{{ topic_counts.get(forum.id, 0) or '' }}</td>
+    <td class="muted">{{ archived_counts.get(forum.id, 0) or '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

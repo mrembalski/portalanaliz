@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Archive dashboard</h1>
+
+<div class="cards">
+  <div class="card"><div class="num">{{ stats.posts }}</div><div class="muted">posts</div></div>
+  <div class="card"><div class="num">{{ stats.topics_complete }}/{{ stats.topics }}</div><div class="muted">topics archived</div></div>
+  <div class="card"><div class="num">{{ stats.authors }}</div><div class="muted">authors</div></div>
+  <div class="card"><div class="num">{{ media.get('done', 0) }}</div><div class="muted">media stored ({{ media.get('pending', 0) }} pending, {{ media.get('failed', 0) }} failed)</div></div>
+</div>
+<p class="muted">Last fetch: {{ stats.last_fetch or 'never' }}</p>
+
+<h2>Biggest topics</h2>
+<table>
+  <tr><th>Topic</th><th>Ticker</th><th>Replies</th><th>Archived</th></tr>
+  {% for t in top_topics %}
+  <tr>
+    <td><a href="/topics/{{ t.id }}">{{ t.title }}</a></td>
+    <td>{% if t.ticker_hint %}<span class="badge">{{ t.ticker_hint }}</span>{% endif %}</td>
+    <td>{{ t.reply_number }}</td>
+    <td class="muted">{{ t.posts_fetched }}/{{ t.total_post_num or t.reply_number + 1 }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>Recently fetched posts</h2>
+<table>
+  <tr><th>Topic</th><th>Author</th><th>Posted</th></tr>
+  {% for p in recent %}
+  <tr>
+    <td><a href="/topics/{{ p.topic_id }}?page={{ (p.position // 50) + 1 }}#p{{ p.position }}">{{ topic_titles.get(p.topic_id).title if topic_titles.get(p.topic_id) else p.topic_id }}</a></td>
+    <td>{{ p.author_name }}</td>
+    <td class="muted">{{ p.post_time }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

@@ -1,0 +1,209 @@
+"""FastAPI app: browse and search the local forum archive."""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import func, select, text
+from sqlalchemy.orm import Session
+
+from portalanaliz.core.db import MEDIA_DIR, SessionLocal, init_db
+from portalanaliz.core.models import Author, Forum, Media, Post, Topic
+from portalanaliz.web.bbcode import render as render_bbcode
+
+PAGE_SIZE = 50
+
+init_db()
+
+app = FastAPI(title="PortalAnaliz Archive")
+app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+
+def db() -> Session:
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+def _render_posts(session: Session, posts: list[Post]) -> list[dict]:
+    """Attach rendered HTML and media info to posts."""
+    ids = [p.id for p in posts]
+    media_rows = session.scalars(select(Media).where(Media.post_id.in_(ids))).all() if ids else []
+    by_post: dict[str, list[Media]] = {}
+    for m in media_rows:
+        by_post.setdefault(m.post_id, []).append(m)
+
+    out = []
+    for p in posts:
+        media = by_post.get(p.id, [])
+        media_map = {m.source_url: m.local_path for m in media if m.status == "done" and m.local_path}
+        attachments = [m for m in media if m.kind == "attachment" and m.status == "done"]
+        out.append({
+            "post": p,
+            "html": render_bbcode(p.content, media_map),
+            "attachments": attachments,
+        })
+    return out
+
+
+@app.get("/")
+def index(request: Request, session: Session = Depends(db)):
+    stats = {
+        "posts": session.scalar(select(func.count(Post.id))) or 0,
+        "topics": session.scalar(select(func.count(Topic.id))) or 0,
+        "topics_started": session.scalar(
+            select(func.count(Topic.id)).where(Topic.posts_fetched > 0)) or 0,
+        "topics_complete": session.scalar(select(func.count(Topic.id)).where(
+            Topic.posts_fetched >= func.coalesce(Topic.total_post_num, Topic.reply_number + 1))) or 0,
+        "authors": session.scalar(select(func.count(Author.id))) or 0,
+        "last_fetch": session.scalar(select(func.max(Post.fetched_at))),
+    }
+    media_by_status = dict(
+        session.execute(select(Media.status, func.count(Media.id)).group_by(Media.status)).all()
+    )
+    top_topics = session.scalars(
+        select(Topic).order_by(Topic.reply_number.desc()).limit(15)
+    ).all()
+    recent = session.scalars(
+        select(Post).order_by(Post.fetched_at.desc()).limit(10)
+    ).all()
+    topic_titles = {
+        t.id: t for t in session.scalars(
+            select(Topic).where(Topic.id.in_({p.topic_id for p in recent}))).all()
+    }
+    return templates.TemplateResponse(request, "index.html", {
+        "stats": stats, "media": media_by_status,
+        "top_topics": top_topics, "recent": recent, "topic_titles": topic_titles,
+    })
+
+
+@app.get("/forums")
+def forums(request: Request, session: Session = Depends(db)):
+    all_forums = session.scalars(select(Forum)).all()
+    topic_counts = dict(session.execute(
+        select(Topic.forum_id, func.count(Topic.id)).group_by(Topic.forum_id)).all())
+    archived_counts = dict(session.execute(
+        select(Topic.forum_id, func.count(Topic.id))
+        .where(Topic.posts_fetched > 0).group_by(Topic.forum_id)).all())
+
+    by_parent: dict[str | None, list[Forum]] = {}
+    for f in all_forums:
+        by_parent.setdefault(f.parent_id, []).append(f)
+
+    rows: list[tuple[Forum, int]] = []
+
+    def walk(parent_id: str | None, depth: int) -> None:
+        for f in by_parent.get(parent_id, []):
+            rows.append((f, depth))
+            walk(f.id, depth + 1)
+
+    walk(None, 0)
+    return templates.TemplateResponse(request, "forums.html", {
+        "rows": rows, "topic_counts": topic_counts, "archived_counts": archived_counts,
+    })
+
+
+@app.get("/forums/{forum_id}")
+def forum_view(forum_id: str, request: Request, page: int = Query(1, ge=1),
+               session: Session = Depends(db)):
+    forum = session.get(Forum, forum_id)
+    if forum is None:
+        raise HTTPException(404)
+    total = session.scalar(select(func.count(Topic.id)).where(Topic.forum_id == forum_id)) or 0
+    topics = session.scalars(
+        select(Topic).where(Topic.forum_id == forum_id)
+        .order_by(Topic.is_sticky.desc(), Topic.reply_number.desc())
+        .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)
+    ).all()
+    return templates.TemplateResponse(request, "forum.html", {
+        "forum": forum, "topics": topics, "page": page,
+        "pages": max(1, -(-total // PAGE_SIZE)),
+    })
+
+
+@app.get("/topics/{topic_id}")
+def topic_view(topic_id: str, request: Request, page: int = Query(1, ge=1),
+               session: Session = Depends(db)):
+    topic = session.get(Topic, topic_id)
+    if topic is None:
+        raise HTTPException(404)
+    total = session.scalar(select(func.count(Post.id)).where(Post.topic_id == topic_id)) or 0
+    posts = session.scalars(
+        select(Post).where(Post.topic_id == topic_id).order_by(Post.position)
+        .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)
+    ).all()
+    return templates.TemplateResponse(request, "topic.html", {
+        "topic": topic, "items": _render_posts(session, posts), "page": page,
+        "pages": max(1, -(-total // PAGE_SIZE)), "total": total,
+    })
+
+
+@app.get("/search")
+def search(request: Request, q: str = "", page: int = Query(1, ge=1),
+           session: Session = Depends(db)):
+    results, total, error = [], 0, None
+    if q.strip():
+        # Quote each token so user input can't break FTS5 query syntax.
+        tokens = re.findall(r"\S+", q)
+        match = " ".join('"' + t.replace('"', "") + '"' for t in tokens)
+        try:
+            total = session.execute(
+                text("SELECT count(*) FROM posts_fts WHERE posts_fts MATCH :m"),
+                {"m": match},
+            ).scalar() or 0
+            rows = session.execute(text("""
+                SELECT p.id, p.topic_id, p.author_name, p.post_time, p.position,
+                       snippet(posts_fts, 0, '<mark>', '</mark>', ' … ', 40) AS snip
+                FROM posts_fts JOIN posts p ON p.rowid = posts_fts.rowid
+                WHERE posts_fts MATCH :m
+                ORDER BY rank LIMIT :lim OFFSET :off
+            """), {"m": match, "lim": PAGE_SIZE, "off": (page - 1) * PAGE_SIZE}).all()
+            topic_map = {
+                t.id: t for t in session.scalars(
+                    select(Topic).where(Topic.id.in_({r.topic_id for r in rows}))).all()
+            } if rows else {}
+            results = [{"row": r, "topic": topic_map.get(r.topic_id)} for r in rows]
+        except Exception as exc:  # malformed FTS query
+            error = str(exc)
+    return templates.TemplateResponse(request, "search.html", {
+        "q": q, "results": results, "total": total, "error": error,
+        "page": page, "pages": max(1, -(-total // PAGE_SIZE)),
+    })
+
+
+@app.get("/authors")
+def authors(request: Request, session: Session = Depends(db)):
+    rows = session.execute(
+        select(Post.author_id, Post.author_name, func.count(Post.id).label("n"),
+               func.max(Post.post_time).label("last"))
+        .group_by(Post.author_id).order_by(func.count(Post.id).desc()).limit(200)
+    ).all()
+    return templates.TemplateResponse(request, "authors.html", {"rows": rows})
+
+
+@app.get("/authors/{author_id}")
+def author_view(author_id: str, request: Request, page: int = Query(1, ge=1),
+                session: Session = Depends(db)):
+    author = session.get(Author, author_id)
+    if author is None:
+        raise HTTPException(404)
+    total = session.scalar(select(func.count(Post.id)).where(Post.author_id == author_id)) or 0
+    posts = session.scalars(
+        select(Post).where(Post.author_id == author_id).order_by(Post.post_time.desc())
+        .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)
+    ).all()
+    topic_map = {
+        t.id: t for t in session.scalars(
+            select(Topic).where(Topic.id.in_({p.topic_id for p in posts}))).all()
+    } if posts else {}
+    return templates.TemplateResponse(request, "author.html", {
+        "author": author, "items": _render_posts(session, posts), "topic_map": topic_map,
+        "page": page, "pages": max(1, -(-total // PAGE_SIZE)), "total": total,
+    })

@@ -1,0 +1,86 @@
+"""Minimal BBCode -> HTML renderer for phpBB/Tapatalk post content.
+
+Not a full BBCode implementation; covers the tags that actually occur in
+the archive and strips the rest. Input is escaped first, so the output is
+safe to mark as trusted HTML.
+"""
+
+from __future__ import annotations
+
+import html
+import re
+
+QUOTE_RE = re.compile(
+    r'\[quote(?:[=\s][^\]]*)?\](?P<body>(?:(?!\[/?quote).)*?)\[/quote\]',
+    re.IGNORECASE | re.DOTALL,
+)
+QUOTE_NAME_RE = re.compile(r'\[quote=&quot;?([^&\]]+?)&quot;?[\]\s]', re.IGNORECASE)
+IMG_RE = re.compile(r'\[img[^\]]*\](.*?)\[/img\]', re.IGNORECASE | re.DOTALL)
+URL_WITH_TEXT_RE = re.compile(r'\[url=(?:&quot;)?([^\]&]+?)(?:&quot;)?\](.*?)\[/url\]',
+                              re.IGNORECASE | re.DOTALL)
+URL_BARE_RE = re.compile(r'\[url\](.*?)\[/url\]', re.IGNORECASE | re.DOTALL)
+CODE_RE = re.compile(r'\[code[^\]]*\](.*?)\[/code\]', re.IGNORECASE | re.DOTALL)
+SIMPLE_TAGS = {"b": "strong", "i": "em", "u": "u", "s": "del"}
+# Formatting tags we drop while keeping their inner text.
+STRIP_TAGS = r"size|color|center|left|right|justify|font|highlight|list|\*|attachment|youtube|media|video|spoiler|hr|table|tr|td|sub|sup|email"
+STRIP_RE = re.compile(rf'\[/?(?:{STRIP_TAGS})[^\]]*\]', re.IGNORECASE)
+BARE_URL_RE = re.compile(r'(?<![">=])(https?://[^\s<\[]+)')
+
+
+def render(content: str, media_map: dict[str, str] | None = None) -> str:
+    """Render BBCode to HTML. media_map maps source URL -> local media path."""
+    media_map = media_map or {}
+    text = html.escape(content or "", quote=True)
+    placeholders: list[str] = []
+
+    def stash(html_fragment: str) -> str:
+        placeholders.append(html_fragment)
+        return f"\x00{len(placeholders) - 1}\x00"
+
+    def img_sub(m: re.Match) -> str:
+        url = html.unescape(m.group(1).strip())
+        src = f"/media/{media_map[url]}" if url in media_map else url
+        return stash(
+            f'<a href="{html.escape(src)}" target="_blank">'
+            f'<img src="{html.escape(src)}" loading="lazy" alt=""></a>'
+        )
+
+    def url_text_sub(m: re.Match) -> str:
+        href = m.group(1).strip()
+        return stash(f'<a href="{href}" target="_blank" rel="noopener">') + m.group(2) + stash("</a>")
+
+    def url_bare_sub(m: re.Match) -> str:
+        href = m.group(1).strip()
+        return stash(f'<a href="{href}" target="_blank" rel="noopener">{href}</a>')
+
+    def code_sub(m: re.Match) -> str:
+        return stash(f"<pre>{m.group(1)}</pre>")
+
+    text = CODE_RE.sub(code_sub, text)
+    text = IMG_RE.sub(img_sub, text)
+    text = URL_WITH_TEXT_RE.sub(url_text_sub, text)
+    text = URL_BARE_RE.sub(url_bare_sub, text)
+
+    # Quotes, innermost first so nesting works.
+    def quote_sub(m: re.Match) -> str:
+        name_match = QUOTE_NAME_RE.match(m.group(0))
+        cite = f"<cite>{name_match.group(1)}</cite>" if name_match else ""
+        return stash("<blockquote>") + cite + m.group("body") + stash("</blockquote>")
+
+    for _ in range(6):
+        text, n = QUOTE_RE.subn(quote_sub, text)
+        if n == 0:
+            break
+
+    for tag, repl in SIMPLE_TAGS.items():
+        text = re.sub(rf'\[{tag}\]', stash(f"<{repl}>"), text, flags=re.IGNORECASE)
+        text = re.sub(rf'\[/{tag}\]', stash(f"</{repl}>"), text, flags=re.IGNORECASE)
+
+    text = STRIP_RE.sub("", text)
+    text = BARE_URL_RE.sub(lambda m: stash(
+        f'<a href="{m.group(1)}" target="_blank" rel="noopener">{m.group(1)}</a>'), text)
+    text = text.replace("\n", stash("<br>"))
+
+    for i, fragment in enumerate(placeholders):
+        text = text.replace(f"\x00{i}\x00", fragment)
+    return text

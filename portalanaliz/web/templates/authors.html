@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Authors{% endblock %}
+{% block content %}
+<h1>Authors</h1>
+<table>
+  <tr><th>Author</th><th>Archived posts</th><th>Last post</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td><a href="/authors/{{ r.author_id }}">{{ r.author_name }}</a></td>
+    <td>{{ r.n }}</td>
+    <td class="muted">{{ r.last }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

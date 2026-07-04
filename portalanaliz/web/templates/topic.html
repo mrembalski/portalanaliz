@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_pager.html" import pager %}
+{% block title %}{{ topic.title }}{% endblock %}
+{% block content %}
+<p class="muted"><a href="/forums/{{ topic.forum_id }}">← back to forum</a></p>
+<h1>{{ topic.title }} {% if topic.ticker_hint %}<span class="badge">{{ topic.ticker_hint }}</span>{% endif %}</h1>
+<p class="muted">{{ total }} posts archived of {{ topic.total_post_num or topic.reply_number + 1 }}</p>
+{{ pager(page, pages, '/topics/' + topic.id) }}
+
+{% for item in items %}
+<div class="post" id="p{{ item.post.position }}">
+  <div class="post-head">
+    <span class="author"><a href="/authors/{{ item.post.author_id }}">{{ item.post.author_name }}</a></span>
+    <span class="muted">{{ item.post.post_time }}</span>
+    <span class="pos">#{{ item.post.position + 1 }}</span>
+  </div>
+  <div class="post-body">{{ item.html | safe }}</div>
+  {% if item.attachments %}
+  <div class="attachments">
+    {% for a in item.attachments %}
+    <a href="/media/{{ a.local_path }}" target="_blank"><img src="/media/{{ a.local_path }}" loading="lazy" alt="attachment"></a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+{{ pager(page, pages, '/topics/' + topic.id) }}
+{% endblock %}

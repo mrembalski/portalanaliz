@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_pager.html" import pager %}
+{% block title %}Search{% endblock %}
+{% block content %}
+<h1>Search</h1>
+<form action="/search" method="get" style="margin-bottom:16px">
+  <input type="search" name="q" value="{{ q }}" placeholder="e.g. niedowartościowana, C/Z, dywidenda…"
+         style="width:70%;padding:8px 12px;border:1px solid var(--border);border-radius:6px">
+  <button style="padding:8px 16px">Search</button>
+</form>
+
+{% if error %}<p class="muted">Search error: {{ error }}</p>{% endif %}
+{% if q and not error %}<p class="muted">{{ total }} results</p>{% endif %}
+
+{% for r in results %}
+<div class="post">
+  <div class="post-head">
+    <span class="author">{{ r.row.author_name }}</span>
+    <span class="muted">{{ r.row.post_time }}</span>
+    <span class="pos">
+      {% if r.topic %}<a href="/topics/{{ r.topic.id }}?page={{ (r.row.position // 50) + 1 }}#p{{ r.row.position }}">{{ r.topic.title }}</a>{% endif %}
+    </span>
+  </div>
+  <div class="post-body">{{ r.row.snip | safe }}</div>
+</div>
+{% endfor %}
+
+{{ pager(page, pages, '/search', '&q=' + (q | urlencode)) }}
+{% endblock %}

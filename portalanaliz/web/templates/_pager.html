@@ -1,0 +1,9 @@
+{% macro pager(page, pages, base_url, extra='') %}
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a href="{{ base_url }}?page={{ page - 1 }}{{ extra }}">‹ prev</a>{% endif %}
+  <span class="cur">{{ page }}</span> <span class="muted">/ {{ pages }}</span>
+  {% if page < pages %}<a href="{{ base_url }}?page={{ page + 1 }}{{ extra }}">next ›</a>{% endif %}
+</div>
+{% endif %}
+{% endmacro %}

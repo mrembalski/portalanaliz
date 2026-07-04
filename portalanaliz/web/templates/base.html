@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Archive{% endblock %} — PortalAnaliz</title>
+<style>
+  :root { --fg:#1a1d21; --muted:#6b7280; --bg:#f7f7f8; --card:#fff; --accent:#0b5fff; --border:#e5e7eb; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--fg); background:var(--bg); }
+  nav { background:var(--card); border-bottom:1px solid var(--border); padding:10px 20px; display:flex; gap:18px; align-items:center; }
+  nav .brand { font-weight:700; margin-right:8px; }
+  nav a { color:var(--fg); text-decoration:none; }
+  nav a:hover { color:var(--accent); }
+  nav form { margin-left:auto; }
+  nav input { padding:6px 10px; border:1px solid var(--border); border-radius:6px; width:220px; }
+  main { max-width:960px; margin:24px auto; padding:0 16px; }
+  a { color:var(--accent); }
+  h1 { font-size:22px; } h2 { font-size:17px; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--border); }
+  th { background:#fafafa; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
+  tr:last-child td { border-bottom:none; }
+  .muted { color:var(--muted); font-size:13px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:12px; margin:16px 0; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px; }
+  .card .num { font-size:24px; font-weight:700; }
+  .post { background:var(--card); border:1px solid var(--border); border-radius:8px; margin:14px 0; }
+  .post-head { padding:8px 14px; background:#fafafa; border-bottom:1px solid var(--border); font-size:13px; display:flex; gap:10px; }
+  .post-head .author { font-weight:600; }
+  .post-head .pos { margin-left:auto; color:var(--muted); }
+  .post-body { padding:14px; overflow-wrap:break-word; }
+  .post-body img { max-width:100%; height:auto; border:1px solid var(--border); border-radius:4px; margin:4px 0; }
+  blockquote { margin:8px 0; padding:8px 12px; background:#f2f6ff; border-left:3px solid var(--accent); border-radius:4px; }
+  blockquote cite { display:block; font-style:normal; font-weight:600; font-size:13px; margin-bottom:4px; }
+  pre { background:#f4f4f5; padding:10px; border-radius:6px; overflow-x:auto; }
+  mark { background:#fef08a; }
+  .pager { margin:18px 0; display:flex; gap:8px; align-items:center; }
+  .pager a, .pager span.cur { padding:4px 10px; border:1px solid var(--border); border-radius:6px; background:var(--card); text-decoration:none; }
+  .pager span.cur { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .badge { display:inline-block; font-size:12px; padding:1px 7px; border-radius:10px; background:#eef2ff; color:#3730a3; }
+  .attachments { padding:8px 14px; border-top:1px solid var(--border); }
+  .attachments img { max-height:120px; margin-right:8px; border-radius:4px; }
+</style>
+</head>
+<body>
+<nav>
+  <span class="brand">📈 PortalAnaliz</span>
+  <a href="/">Dashboard</a>
+  <a href="/forums">Forums</a>
+  <a href="/authors">Authors</a>
+  <form action="/search" method="get"><input type="search" name="q" placeholder="Search posts…" value="{{ request.query_params.get('q','') }}"></form>
+</nav>
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

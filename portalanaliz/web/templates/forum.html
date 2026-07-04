@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "_pager.html" import pager %}
+{% block title %}{{ forum.name }}{% endblock %}
+{% block content %}
+<h1>{{ forum.name }}</h1>
+<table>
+  <tr><th>Topic</th><th>Ticker</th><th>Replies</th><th>Archived</th></tr>
+  {% for t in topics %}
+  <tr>
+    <td>{% if t.is_sticky %}📌 {% endif %}<a href="/topics/{{ t.id }}">{{ t.title }}</a></td>
+    <td>{% if t.ticker_hint %}<span class="badge">{{ t.ticker_hint }}</span>{% endif %}</td>
+    <td>{{ t.reply_number }}</td>
+    <td class="muted">{{ t.posts_fetched }}/{{ t.total_post_num or t.reply_number + 1 }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{{ pager(page, pages, '/forums/' + forum.id) }}
+{% endblock %}

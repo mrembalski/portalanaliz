@@ -20,6 +20,33 @@ class Settings:
     request_timeout: float = 30.0
 
 
+@dataclass(frozen=True)
+class ScoringSettings:
+    """LLM scoring config. Model specs are "provider:model", provider one of:
+
+    - anthropic — Anthropic API (needs ANTHROPIC_API_KEY)
+    - local    — any OpenAI-compatible server (Ollama, LM Studio, vLLM)
+                 at LOCAL_LLM_BASE_URL
+    """
+
+    filter_model: str = "anthropic:claude-haiku-4-5"
+    extract_model: str = "anthropic:claude-sonnet-5"
+    anthropic_api_key: str = ""
+    local_base_url: str = "http://localhost:11434/v1"
+    local_api_key: str = "ollama"  # most local servers ignore it but require a value
+
+
+def load_scoring_settings() -> ScoringSettings:
+    load_dotenv()
+    return ScoringSettings(
+        filter_model=os.environ.get("SCORING_FILTER_MODEL", ScoringSettings.filter_model),
+        extract_model=os.environ.get("SCORING_EXTRACT_MODEL", ScoringSettings.extract_model),
+        anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+        local_base_url=os.environ.get("LOCAL_LLM_BASE_URL", ScoringSettings.local_base_url),
+        local_api_key=os.environ.get("LOCAL_LLM_API_KEY", ScoringSettings.local_api_key),
+    )
+
+
 def load_settings() -> Settings:
     load_dotenv()
     login = os.environ.get("LOGIN", "")

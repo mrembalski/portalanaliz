@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     LargeBinary,
@@ -99,6 +101,58 @@ class Media(Base):
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     post: Mapped[Post] = relationship(back_populates="media")
+
+
+class PostScore(Base):
+    """LLM scoring result for one post under one prompt version.
+
+    A post is scored at most once per prompt_version; bumping the version in
+    portalanaliz/scoring/prompts.py makes every post eligible for rescoring
+    without touching existing rows.
+    """
+
+    __tablename__ = "post_scores"
+    __table_args__ = (UniqueConstraint("post_id", "prompt_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    post_id: Mapped[str] = mapped_column(String, ForeignKey("posts.id"), index=True)
+    prompt_version: Mapped[str] = mapped_column(String, index=True)
+    # skipped_short | skipped_keywords | chit_chat | scored | error
+    status: Mapped[str] = mapped_column(String, index=True)
+    is_analysis: Mapped[bool] = mapped_column(Boolean, default=False)
+    quality: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # Direction of the post's primary thesis: bullish | bearish | neutral | mixed
+    direction: Mapped[str | None] = mapped_column(String, nullable=True)
+    tickers_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
+    claims_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    filter_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    extract_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    scored_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    post: Mapped[Post] = relationship()
+
+
+class StockScore(Base):
+    """Per-ticker daily rollup of post sentiment x quality (history kept)."""
+
+    __tablename__ = "stock_scores"
+    __table_args__ = (UniqueConstraint("ticker", "as_of"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String, index=True)
+    as_of: Mapped[date] = mapped_column(Date, index=True)
+    # Recency-decayed sum of quality-weighted mentions ("how much good analysis lately").
+    attention: Mapped[float] = mapped_column(Float, default=0.0)
+    # Weighted mean direction in [-1, 1].
+    sentiment: Mapped[float] = mapped_column(Float, default=0.0)
+    post_count: Mapped[int] = mapped_column(Integer, default=0)
+    avg_quality: Mapped[float] = mapped_column(Float, default=0.0)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class SyncState(Base):

@@ -29,6 +29,10 @@ class TapatalkError(Exception):
     """A Tapatalk method returned result=false or the transport failed for good."""
 
 
+class RequestBudgetExceeded(Exception):
+    """Raised when the per-run request budget is used up; sync exits cleanly."""
+
+
 class TapatalkClient:
     def __init__(self, settings: Settings, limiter: RateLimiter | None = None) -> None:
         self.settings = settings
@@ -43,6 +47,9 @@ class TapatalkClient:
             follow_redirects=True,
         )
         self._logged_in = False
+        self.requests_made = 0
+        # Optional per-run cap on outgoing requests; None = unlimited.
+        self.max_requests: int | None = None
 
     # ------------------------------------------------------------------ core
 
@@ -58,7 +65,10 @@ class TapatalkClient:
         last_error: Exception | None = None
 
         for attempt in range(1, max_tries + 1):
+            if self.max_requests is not None and self.requests_made >= self.max_requests:
+                raise RequestBudgetExceeded(f"request budget ({self.max_requests}) exhausted")
             self.limiter.wait()
+            self.requests_made += 1
             try:
                 resp = self._http.post(self.settings.tapatalk_url, content=body)
             except httpx.HTTPError as exc:

@@ -9,7 +9,7 @@ potentially undervalued stocks.
 - `portalanaliz/core/` — SQLAlchemy models, SQLite setup (incl. FTS5), config from `.env`
 - `portalanaliz/scraper/` — Tapatalk client, rate limiter, resumable sync CLI, media downloader
 - `portalanaliz/web/` — FastAPI + Jinja2 UI (dashboard, browser, search, authors)
-- `portalanaliz/scoring/` — planned: LLM pipeline (relevance → extraction → quality score)
+- `portalanaliz/scoring/` — LLM pipeline (prefilter → relevance → extraction → rollup), provider-agnostic (Anthropic or local OpenAI-compatible)
 - `data/` — gitignored: `portalanaliz.db` (SQLite) and `media/` (sha256-named files)
 
 ## Commands
@@ -19,6 +19,8 @@ potentially undervalued stocks.
 python -m portalanaliz.scraper.probe                          # connectivity check
 python -m portalanaliz.scraper.sync all --forum-id 3 --budget 500   # sync (resumable)
 python -m portalanaliz.web                                    # UI on :8000 (preview config uses :8321)
+python -m portalanaliz.scoring all --limit 100                # LLM scoring (resumable)
+python -m portalanaliz.scoring stats                          # scoring progress + cost
 ```
 
 Sync subcommands: `forums | topics | posts | media | all`. Forum 3 = GPW stocks (main target).
@@ -26,7 +28,9 @@ Sync subcommands: `forums | topics | posts | media | all`. Forum 3 = GPW stocks 
 ## Config
 
 `.env` (never commit): `LOGIN`, `PASSWORD` — forum credentials. Optional:
-`TAPATALK_URL`, `MIN_REQUEST_INTERVAL`, `REQUEST_TIMEOUT`.
+`TAPATALK_URL`, `MIN_REQUEST_INTERVAL`, `REQUEST_TIMEOUT`. Scoring:
+`ANTHROPIC_API_KEY`, `SCORING_FILTER_MODEL` / `SCORING_EXTRACT_MODEL`
+(`anthropic:<model>` or `local:<model>`), `LOCAL_LLM_BASE_URL` (Ollama default).
 
 ## Hard rules
 

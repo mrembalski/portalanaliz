@@ -9,7 +9,26 @@
   <div class="card"><div class="num">{{ stats.authors }}</div><div class="muted">authors</div></div>
   <div class="card"><div class="num">{{ media.get('done', 0) }}</div><div class="muted">media stored ({{ media.get('pending', 0) }} pending, {{ media.get('failed', 0) }} failed)</div></div>
 </div>
-<p class="muted">Last fetch: {{ stats.last_fetch or 'never' }}</p>
+<p class="muted">Last fetch: {{ stats.last_fetch or 'never' }} ·
+Scoring: {{ scoring.scored }} analysis / {{ scoring.processed }} processed
+(${{ "%.4f"|format(scoring.cost) }} spent)</p>
+
+{% if top_stocks %}
+<h2>Top stocks by attention</h2>
+<table>
+  <tr><th>Ticker</th><th>Attention</th><th>Sentiment</th><th>Posts</th><th>Avg quality</th></tr>
+  {% for s in top_stocks %}
+  <tr>
+    <td><a href="/stocks/{{ s.ticker }}"><span class="badge">{{ s.ticker }}</span></a></td>
+    <td>{{ "%.2f"|format(s.attention) }}</td>
+    <td>{% if s.sentiment > 0.2 %}🟢{% elif s.sentiment < -0.2 %}🔴{% else %}⚪{% endif %}
+        {{ "%+.2f"|format(s.sentiment) }}</td>
+    <td>{{ s.post_count }}</td>
+    <td>{{ s.avg_quality }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
 
 <h2>Biggest topics</h2>
 <table>

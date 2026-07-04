@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ ticker }}{% endblock %}
+{% block content %}
+<h1><span class="badge">{{ ticker }}</span>
+{% for t in topics_for_ticker %} <a href="/topics/{{ t.id }}">{{ t.title }}</a>{% endfor %}
+</h1>
+
+{% if history %}
+<h2>Score history</h2>
+<table>
+  <tr><th>As of</th><th>Attention</th><th>Sentiment</th><th>Posts</th><th>Avg quality</th></tr>
+  {% for s in history %}
+  <tr>
+    <td>{{ s.as_of }}</td>
+    <td>{{ "%.2f"|format(s.attention) }}</td>
+    <td>{% if s.sentiment > 0.2 %}🟢{% elif s.sentiment < -0.2 %}🔴{% else %}⚪{% endif %}
+        {{ "%+.2f"|format(s.sentiment) }}</td>
+    <td>{{ s.post_count }}</td>
+    <td>{{ s.avg_quality }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2>Best analysis posts</h2>
+{% if best %}
+{% for b in best %}
+<div class="post">
+  <div class="post-head">
+    <span class="author">{{ b.post.author_name }}</span>
+    <span>{% if b.direction == 'bullish' %}🟢 bullish{% elif b.direction == 'bearish' %}🔴 bearish{% else %}⚪ {{ b.direction }}{% endif %}</span>
+    <span class="badge">quality {{ b.score.quality }}</span>
+    <span class="pos">
+      <a href="/topics/{{ b.post.topic_id }}?page={{ (b.post.position // 50) + 1 }}#p{{ b.post.position }}">
+        {{ topic_map.get(b.post.topic_id).title if topic_map.get(b.post.topic_id) else b.post.topic_id }}</a>
+      · {{ b.post.post_time }}
+    </span>
+  </div>
+  <div class="post-body">
+    {% if b.score.summary %}<p><em>{{ b.score.summary }}</em></p>{% endif %}
+    {% if b.score.claims_json %}
+    <ul class="muted">
+      {% for c in b.score.claims_json | fromjson %}<li>{{ c }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<p class="muted">No scored analysis posts for this ticker yet.</p>
+{% endif %}
+{% endblock %}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -12,7 +13,9 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from portalanaliz.core.db import MEDIA_DIR, SessionLocal, init_db
-from portalanaliz.core.models import Author, Forum, Media, Post, Topic
+from portalanaliz.core.models import (
+    Author, Forum, Media, Post, PostScore, StockScore, Topic,
+)
 from portalanaliz.web.bbcode import render as render_bbcode
 
 PAGE_SIZE = 50
@@ -22,6 +25,7 @@ init_db()
 app = FastAPI(title="PortalAnaliz Archive")
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates.env.filters["fromjson"] = json.loads
 
 
 def db() -> Session:
@@ -78,9 +82,77 @@ def index(request: Request, session: Session = Depends(db)):
         t.id: t for t in session.scalars(
             select(Topic).where(Topic.id.in_({p.topic_id for p in recent}))).all()
     }
+    scoring = {
+        "scored": session.scalar(select(func.count(PostScore.id))
+                                 .where(PostScore.status == "scored")) or 0,
+        "processed": session.scalar(select(func.count(PostScore.id))) or 0,
+        "cost": session.scalar(select(func.sum(PostScore.cost_usd))) or 0.0,
+    }
+    top_stocks = _latest_stock_scores(session, limit=10)
     return templates.TemplateResponse(request, "index.html", {
         "stats": stats, "media": media_by_status,
         "top_topics": top_topics, "recent": recent, "topic_titles": topic_titles,
+        "scoring": scoring, "top_stocks": top_stocks,
+    })
+
+
+def _latest_stock_scores(session: Session, limit: int | None = None) -> list[StockScore]:
+    """Most recent stock_scores row per ticker, ordered by attention."""
+    latest = (
+        select(StockScore.ticker, func.max(StockScore.as_of).label("as_of"))
+        .group_by(StockScore.ticker).subquery()
+    )
+    q = (
+        select(StockScore)
+        .join(latest, (StockScore.ticker == latest.c.ticker)
+              & (StockScore.as_of == latest.c.as_of))
+        .order_by(StockScore.attention.desc())
+    )
+    if limit:
+        q = q.limit(limit)
+    return list(session.scalars(q))
+
+
+@app.get("/stocks")
+def stocks(request: Request, session: Session = Depends(db)):
+    return templates.TemplateResponse(request, "stocks.html", {
+        "rows": _latest_stock_scores(session),
+    })
+
+
+@app.get("/stocks/{ticker}")
+def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
+    ticker = ticker.upper()
+    history = session.scalars(
+        select(StockScore).where(StockScore.ticker == ticker)
+        .order_by(StockScore.as_of.desc()).limit(60)
+    ).all()
+    # Best-scored analysis posts mentioning this ticker.
+    scored = session.execute(
+        select(PostScore, Post)
+        .join(Post, Post.id == PostScore.post_id)
+        .where(PostScore.status == "scored",
+               PostScore.tickers_json.like(f'%"{ticker}"%'))
+        .order_by(PostScore.quality.desc()).limit(20)
+    ).all()
+    best = []
+    for score, post in scored:
+        tickers = json.loads(score.tickers_json or "[]")
+        mention = next((t for t in tickers if t.get("ticker") == ticker), None)
+        if mention is None:
+            continue  # LIKE false positive (ticker inside a name string)
+        best.append({"score": score, "post": post, "direction": mention.get("direction")})
+    topic_map = {
+        t.id: t for t in session.scalars(select(Topic).where(
+            Topic.id.in_({b["post"].topic_id for b in best}))).all()
+    } if best else {}
+    topics_for_ticker = session.scalars(
+        select(Topic).where(Topic.ticker_hint == ticker)).all()
+    if not history and not best and not topics_for_ticker:
+        raise HTTPException(404)
+    return templates.TemplateResponse(request, "stock.html", {
+        "ticker": ticker, "history": history, "best": best,
+        "topic_map": topic_map, "topics_for_ticker": topics_for_ticker,
     })
 
 

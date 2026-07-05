@@ -6,9 +6,16 @@ quality 0-100) -> per-ticker rollup into `stock_scores`.
 
 ## Invariants
 
-- A post is "done" when a `post_scores` row exists for `prompts.PROMPT_VERSION`.
-  Bump the version on ANY prompt change; old rows stay for comparison — never
-  delete or rewrite them.
+- A scoring config = (prompt set, filter_model, extract_model); all three are
+  recorded on every `post_scores` row (even free skips) and form the unique
+  key with post_id. A post is "done" when a row exists for the ACTIVE config —
+  changing prompt or model starts a fresh comparable pass; old rows stay.
+  Rollup and web UI only read the active config's rows.
+- Prompts live in `prompts.py:PROMPTS` (named registry, selected via
+  SCORING_PROMPT / `--prompt`). To experiment, ADD a new named set — never
+  edit an existing one that has scored rows.
+- `FOCUS_TICKERS` (shared with the scraper) narrows scoring to topics with
+  those ticker_hints; empty = whole archive. CLI `--tickers` overrides.
 - One commit per post — a killed run loses at most the in-flight post.
 - `--limit N` counts only posts that reach the LLM; prefilter skips are free
   and unlimited.
@@ -25,12 +32,14 @@ quality 0-100) -> per-ticker rollup into `stock_scores`.
   historical backfill still produces a meaningful window; rows are
   upserted per (ticker, as_of-date), keeping history for charts.
 
-## Config (.env)
+## Config (.env, all overridable per run via CLI flags)
 
 `SCORING_FILTER_MODEL` (default `anthropic:claude-haiku-4-5`),
 `SCORING_EXTRACT_MODEL` (default `anthropic:claude-sonnet-5`),
+`SCORING_PROMPT` (default `v1`), `FOCUS_TICKERS` (e.g. `SNT,VOT`),
 `ANTHROPIC_API_KEY`, `LOCAL_LLM_BASE_URL` (default `http://localhost:11434/v1`),
-`LOCAL_LLM_API_KEY`.
+`LOCAL_LLM_API_KEY`. CLI: `--filter-model --extract-model --prompt --tickers`.
+`stats` prints a per-config breakdown and marks the active one.
 
 ## Gotchas
 

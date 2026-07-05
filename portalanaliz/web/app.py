@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from portalanaliz.core.config import load_scoring_settings
 from portalanaliz.core.db import MEDIA_DIR, SessionLocal, init_db
 from portalanaliz.core.models import (
     Author, Forum, Media, Post, PostScore, StockScore, Topic,
@@ -21,6 +22,14 @@ from portalanaliz.web.bbcode import render as render_bbcode
 PAGE_SIZE = 50
 
 init_db()
+# The UI shows results for the active scoring config only (env at startup).
+SCORING = load_scoring_settings()
+
+
+def _scoped_scores():
+    return (PostScore.prompt_version == SCORING.prompt,
+            PostScore.filter_model == SCORING.filter_model,
+            PostScore.extract_model == SCORING.extract_model)
 
 app = FastAPI(title="PortalAnaliz Archive")
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
@@ -84,9 +93,12 @@ def index(request: Request, session: Session = Depends(db)):
     }
     scoring = {
         "scored": session.scalar(select(func.count(PostScore.id))
-                                 .where(PostScore.status == "scored")) or 0,
-        "processed": session.scalar(select(func.count(PostScore.id))) or 0,
-        "cost": session.scalar(select(func.sum(PostScore.cost_usd))) or 0.0,
+                                 .where(*_scoped_scores(),
+                                        PostScore.status == "scored")) or 0,
+        "processed": session.scalar(select(func.count(PostScore.id))
+                                    .where(*_scoped_scores())) or 0,
+        "cost": session.scalar(select(func.sum(PostScore.cost_usd))
+                               .where(*_scoped_scores())) or 0.0,
     }
     top_stocks = _latest_stock_scores(session, limit=10)
     return templates.TemplateResponse(request, "index.html", {
@@ -131,7 +143,8 @@ def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
     scored = session.execute(
         select(PostScore, Post)
         .join(Post, Post.id == PostScore.post_id)
-        .where(PostScore.status == "scored",
+        .where(*_scoped_scores(),
+               PostScore.status == "scored",
                PostScore.tickers_json.like(f'%"{ticker}"%'))
         .order_by(PostScore.quality.desc()).limit(20)
     ).all()

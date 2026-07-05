@@ -17,8 +17,8 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from portalanaliz.core.config import ScoringSettings
 from portalanaliz.core.models import Post, PostScore, StockScore
-from portalanaliz.scoring import prompts
 
 log = logging.getLogger(__name__)
 
@@ -28,15 +28,21 @@ HALF_LIFE_DAYS = 90
 _DIR_VALUE = {"bullish": 1.0, "bearish": -1.0}
 
 
-def compute_stock_scores(session: Session, as_of: date | None = None) -> int:
+def compute_stock_scores(session: Session, settings: ScoringSettings,
+                         as_of: date | None = None) -> int:
+    """Rollup over the ACTIVE config's scored rows only (stock_scores rows are
+    overwritten per (ticker, date) — the table reflects the last config rolled up)."""
+    scoped = (PostScore.prompt_version == settings.prompt,
+              PostScore.filter_model == settings.filter_model,
+              PostScore.extract_model == settings.extract_model,
+              PostScore.status == "scored")
     if as_of is None:
         # Anchor to the newest scored post, not today — during backfill the
         # archive tail is years old and a today-anchored window would be empty.
         newest = session.execute(
             select(func.max(Post.post_time))
             .join(PostScore, PostScore.post_id == Post.id)
-            .where(PostScore.status == "scored",
-                   PostScore.prompt_version == prompts.PROMPT_VERSION)
+            .where(*scoped)
         ).scalar()
         as_of = newest.date() if newest else date.today()
     cutoff = datetime.combine(as_of, datetime.min.time()) - timedelta(days=WINDOW_DAYS)
@@ -44,9 +50,7 @@ def compute_stock_scores(session: Session, as_of: date | None = None) -> int:
     rows = session.execute(
         select(PostScore, Post.post_time)
         .join(Post, Post.id == PostScore.post_id)
-        .where(PostScore.prompt_version == prompts.PROMPT_VERSION,
-               PostScore.status == "scored",
-               Post.post_time >= cutoff)
+        .where(*scoped, Post.post_time >= cutoff)
     ).all()
 
     # ticker -> [(weight, direction_value, quality)]

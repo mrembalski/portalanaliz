@@ -1,13 +1,24 @@
-"""Versioned prompts for the scoring pipeline.
+"""Versioned prompt sets for the scoring pipeline.
 
-Bump PROMPT_VERSION whenever any prompt text changes — post_scores rows are
-keyed on (post_id, prompt_version), so a bump makes the whole archive
-eligible for rescoring while keeping old results for comparison.
+PROMPTS is a registry of named, immutable prompt sets. Pick one via
+SCORING_PROMPT in .env or `--prompt <name>` on the CLI; the name is stored as
+post_scores.prompt_version. To experiment, ADD a new entry (e.g. "v2",
+"v1-strict") — never edit an existing one that has scored rows, or stored
+results stop meaning what they meant.
 """
 
-PROMPT_VERSION = "v1"
+from __future__ import annotations
 
-FILTER_SYSTEM = """\
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class PromptSet:
+    filter_system: str
+    extract_system: str
+
+
+_FILTER_V1 = """\
 Jesteś klasyfikatorem postów z polskiego forum giełdowego (GPW, portalanaliz.pl).
 
 Oceń, czy post zawiera FAKTYCZNĄ ANALIZĘ spółki lub akcji — czyli co najmniej jedno z:
@@ -22,7 +33,7 @@ czysta analiza techniczna bez odniesienia do spółki ("wsparcie na 12 zł").
 
 Odpowiedz WYŁĄCZNIE obiektem JSON: {"analysis": true} lub {"analysis": false}"""
 
-EXTRACT_SYSTEM = """\
+_EXTRACT_V1 = """\
 Jesteś analitykiem ekstrahującym dane z postów polskiego forum giełdowego (GPW).
 Dostaniesz post uznany za analizę spółki. Wątek dotyczy spółki wskazanej w
 nagłówku ("ticker wątku"), ale post może omawiać też inne spółki.
@@ -48,6 +59,22 @@ Zasady:
   finansowymi i uzasadnieniem; 81-100: dogłębna analiza z wyceną, źródłami,
   scenariuszami.
 Nie dodawaj żadnego tekstu poza JSON."""
+
+
+PROMPTS: dict[str, PromptSet] = {
+    "v1": PromptSet(filter_system=_FILTER_V1, extract_system=_EXTRACT_V1),
+}
+
+DEFAULT_PROMPT = "v1"
+
+
+def get_prompts(name: str) -> PromptSet:
+    try:
+        return PROMPTS[name]
+    except KeyError:
+        raise KeyError(
+            f"unknown prompt set {name!r}; available: {', '.join(sorted(PROMPTS))}"
+        ) from None
 
 
 def extraction_user(topic_title: str, ticker_hint: str | None, post_time: str,

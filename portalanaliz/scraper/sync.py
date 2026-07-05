@@ -118,11 +118,20 @@ def _upsert_topic(session: Session, forum_id: str, t: dict, sticky: bool) -> Non
 
 # -------------------------------------------------------------------- posts
 
-def sync_posts(client: TapatalkClient, session: Session, forum_id: str | None = None) -> None:
-    """Fetch missing posts for every topic whose cursor lags its post count."""
+def sync_posts(client: TapatalkClient, session: Session, forum_id: str | None = None,
+               tickers: tuple[str, ...] = ()) -> None:
+    """Fetch missing posts for every topic whose cursor lags its post count.
+
+    tickers (FOCUS_TICKERS) narrows the topic selection only — cursor and
+    budget behavior are unchanged, so widening the list later just makes more
+    topics eligible.
+    """
     q = select(Topic)
     if forum_id:
         q = q.where(Topic.forum_id == forum_id)
+    if tickers:
+        q = q.where(Topic.ticker_hint.in_(tickers))
+        log.info("posts sync limited to tickers: %s", ", ".join(tickers))
     topics = session.scalars(q).all()
 
     # Expected post count: reply_number + 1 (first post isn't a "reply").
@@ -222,7 +231,8 @@ def main() -> None:
             if args.command in ("topics", "all"):
                 sync_topics(client, session, forum_id=args.forum_id)
             if args.command in ("posts", "all"):
-                sync_posts(client, session, forum_id=args.forum_id)
+                sync_posts(client, session, forum_id=args.forum_id,
+                           tickers=settings.focus_tickers)
             if args.command in ("media", "all"):
                 budget_left = None
                 if args.budget is not None:

@@ -1,9 +1,11 @@
 """Scoring pipeline: prefilter -> LLM relevance filter -> LLM extraction.
 
 Resumable by construction: a post is "done" when a post_scores row exists for
-the current PROMPT_VERSION; each post commits individually, so a killed run
-loses at most one in-flight post. --limit caps LLM-scored posts per run
-(free prefilter skips don't count against it).
+the active config (prompt set + filter model + extract model); each post
+commits individually, so a killed run loses at most one in-flight post.
+--limit caps LLM-scored posts per run (free prefilter skips don't count).
+Switching prompt or model = a new config = a fresh scoring pass; old rows
+stay for comparison. FOCUS_TICKERS restricts work to those topics.
 """
 
 from __future__ import annotations
@@ -25,17 +27,25 @@ log = logging.getLogger(__name__)
 VALID_DIRECTIONS = {"bullish", "bearish", "neutral", "mixed"}
 
 
-def unscored_posts(session: Session, batch: int = 500) -> list[Post]:
-    """Posts with no post_scores row for the current prompt version."""
-    scored = select(PostScore.post_id).where(PostScore.prompt_version == prompts.PROMPT_VERSION)
-    return list(session.scalars(
-        select(Post).where(Post.id.not_in(scored)).order_by(Post.post_time).limit(batch)
-    ))
+def unscored_posts(session: Session, settings: ScoringSettings,
+                   batch: int = 500) -> list[Post]:
+    """Posts with no post_scores row for the active config, honoring FOCUS_TICKERS."""
+    scored = select(PostScore.post_id).where(
+        PostScore.prompt_version == settings.prompt,
+        PostScore.filter_model == settings.filter_model,
+        PostScore.extract_model == settings.extract_model,
+    )
+    q = select(Post).where(Post.id.not_in(scored))
+    if settings.tickers:
+        topic_ids = select(Topic.id).where(Topic.ticker_hint.in_(settings.tickers))
+        q = q.where(Post.topic_id.in_(topic_ids))
+    return list(session.scalars(q.order_by(Post.post_time).limit(batch)))
 
 
 def score_posts(session: Session, settings: ScoringSettings,
                 limit: int | None = None) -> dict:
     """Process unscored posts. Returns counters incl. token/cost totals."""
+    prompt_set = prompts.get_prompts(settings.prompt)
     stats = {"skipped_short": 0, "skipped_keywords": 0, "chit_chat": 0,
              "scored": 0, "error": 0, "input_tokens": 0, "output_tokens": 0,
              "cost_usd": 0.0}
@@ -45,7 +55,7 @@ def score_posts(session: Session, settings: ScoringSettings,
 
     try:
         while True:
-            posts = unscored_posts(session)
+            posts = unscored_posts(session, settings)
             if not posts:
                 break
             topics = {t.id: t for t in session.scalars(
@@ -56,11 +66,11 @@ def score_posts(session: Session, settings: ScoringSettings,
                     return stats
                 text = strip_bbcode(post.content)
                 if len(text) < MIN_CHARS:
-                    _save(session, post, "skipped_short")
+                    _save(session, settings, post, "skipped_short")
                     stats["skipped_short"] += 1
                     continue
                 if not has_analysis_signal(text):
-                    _save(session, post, "skipped_keywords")
+                    _save(session, settings, post, "skipped_keywords")
                     stats["skipped_keywords"] += 1
                     continue
 
@@ -69,8 +79,8 @@ def score_posts(session: Session, settings: ScoringSettings,
                     extract_client = make_client(settings.extract_model, settings)
                 llm_calls_for += 1
                 topic = topics.get(post.topic_id)
-                _score_one(session, settings, filter_client, extract_client,
-                           post, topic, text, stats)
+                _score_one(session, settings, prompt_set, filter_client,
+                           extract_client, post, topic, text, stats)
     finally:
         for c in (filter_client, extract_client):
             if c is not None:
@@ -78,15 +88,13 @@ def score_posts(session: Session, settings: ScoringSettings,
     return stats
 
 
-def _score_one(session: Session, settings: ScoringSettings,
+def _score_one(session: Session, settings: ScoringSettings, prompt_set: prompts.PromptSet,
                filter_client: LLMClient, extract_client: LLMClient,
                post: Post, topic: Topic | None, text: str, stats: dict) -> None:
     title = topic.title if topic else ""
-    row = PostScore(post_id=post.id, prompt_version=prompts.PROMPT_VERSION,
-                    status="error", filter_model=settings.filter_model,
-                    input_tokens=0, output_tokens=0, cost_usd=0.0)
+    row = _new_row(settings, post, "error")
     try:
-        r = filter_client.complete(prompts.FILTER_SYSTEM,
+        r = filter_client.complete(prompt_set.filter_system,
                                    prompts.filter_user(title, text), max_tokens=64)
         _add_usage(row, stats, r)
         is_analysis = bool(parse_json_response(r.text).get("analysis"))
@@ -95,9 +103,8 @@ def _score_one(session: Session, settings: ScoringSettings,
             row.status = "chit_chat"
             stats["chit_chat"] += 1
         else:
-            row.extract_model = settings.extract_model
             r = extract_client.complete(
-                prompts.EXTRACT_SYSTEM,
+                prompt_set.extract_system,
                 prompts.extraction_user(title, topic.ticker_hint if topic else None,
                                         str(post.post_time or ""), text),
                 max_tokens=1500,
@@ -140,9 +147,15 @@ def _apply_extraction(row: PostScore, data: dict, topic: Topic | None) -> None:
     row.direction = primary.get("direction") if primary else None
 
 
-def _save(session: Session, post: Post, status: str) -> None:
-    session.add(PostScore(post_id=post.id, prompt_version=prompts.PROMPT_VERSION,
-                          status=status))
+def _new_row(settings: ScoringSettings, post: Post, status: str) -> PostScore:
+    return PostScore(post_id=post.id, prompt_version=settings.prompt, status=status,
+                     filter_model=settings.filter_model,
+                     extract_model=settings.extract_model,
+                     input_tokens=0, output_tokens=0, cost_usd=0.0)
+
+
+def _save(session: Session, settings: ScoringSettings, post: Post, status: str) -> None:
+    session.add(_new_row(settings, post, status))
     session.commit()
 
 

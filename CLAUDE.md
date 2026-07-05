@@ -30,7 +30,10 @@ Sync subcommands: `forums | topics | posts | media | all`. Forum 3 = GPW stocks 
 `.env` (never commit): `LOGIN`, `PASSWORD` — forum credentials. Optional:
 `TAPATALK_URL`, `MIN_REQUEST_INTERVAL`, `REQUEST_TIMEOUT`. Scoring:
 `ANTHROPIC_API_KEY`, `SCORING_FILTER_MODEL` / `SCORING_EXTRACT_MODEL`
-(`anthropic:<model>` or `local:<model>`), `LOCAL_LLM_BASE_URL` (Ollama default).
+(`anthropic:<model>` or `local:<model>`), `SCORING_PROMPT` (named set in
+`scoring/prompts.py`), `LOCAL_LLM_BASE_URL` (Ollama default).
+`FOCUS_TICKERS` (e.g. `SNT,VOT`) — global limiter: post sync and scoring only
+touch topics with those ticker hints; empty = everything.
 
 ## Hard rules
 

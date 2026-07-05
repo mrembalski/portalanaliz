@@ -18,6 +18,13 @@ class Settings:
     # Politeness: minimum seconds between outgoing requests (jitter added on top).
     min_request_interval: float = 2.5
     request_timeout: float = 30.0
+    # Global focus list (FOCUS_TICKERS="SNT,VOT"): post sync and scoring only
+    # touch topics whose ticker_hint is in the list. Empty = everything.
+    focus_tickers: tuple[str, ...] = ()
+
+
+def _parse_tickers(raw: str) -> tuple[str, ...]:
+    return tuple(t.strip().upper() for t in raw.split(",") if t.strip())
 
 
 @dataclass(frozen=True)
@@ -31,6 +38,10 @@ class ScoringSettings:
 
     filter_model: str = "anthropic:claude-haiku-4-5"
     extract_model: str = "anthropic:claude-sonnet-5"
+    # Named prompt set from portalanaliz/scoring/prompts.py:PROMPTS.
+    prompt: str = "v1"
+    # Same semantics as Settings.focus_tickers; shares the FOCUS_TICKERS var.
+    tickers: tuple[str, ...] = ()
     anthropic_api_key: str = ""
     local_base_url: str = "http://localhost:11434/v1"
     local_api_key: str = "ollama"  # most local servers ignore it but require a value
@@ -41,6 +52,8 @@ def load_scoring_settings() -> ScoringSettings:
     return ScoringSettings(
         filter_model=os.environ.get("SCORING_FILTER_MODEL", ScoringSettings.filter_model),
         extract_model=os.environ.get("SCORING_EXTRACT_MODEL", ScoringSettings.extract_model),
+        prompt=os.environ.get("SCORING_PROMPT", ScoringSettings.prompt),
+        tickers=_parse_tickers(os.environ.get("FOCUS_TICKERS", "")),
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
         local_base_url=os.environ.get("LOCAL_LLM_BASE_URL", ScoringSettings.local_base_url),
         local_api_key=os.environ.get("LOCAL_LLM_API_KEY", ScoringSettings.local_api_key),
@@ -59,4 +72,5 @@ def load_settings() -> Settings:
         tapatalk_url=os.environ.get("TAPATALK_URL", DEFAULT_TAPATALK_URL),
         min_request_interval=float(os.environ.get("MIN_REQUEST_INTERVAL", "2.5")),
         request_timeout=float(os.environ.get("REQUEST_TIMEOUT", "30")),
+        focus_tickers=_parse_tickers(os.environ.get("FOCUS_TICKERS", "")),
     )

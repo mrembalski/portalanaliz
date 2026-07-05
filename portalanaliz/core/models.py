@@ -104,15 +104,18 @@ class Media(Base):
 
 
 class PostScore(Base):
-    """LLM scoring result for one post under one prompt version.
+    """LLM scoring result for one post under one scoring config.
 
-    A post is scored at most once per prompt_version; bumping the version in
-    portalanaliz/scoring/prompts.py makes every post eligible for rescoring
-    without touching existing rows.
+    A config is (prompt_version, filter_model, extract_model): a post is
+    scored at most once per config, so switching prompt set or model starts a
+    fresh, comparable experiment while old rows stay untouched. Rollup and the
+    web UI only look at the currently configured combination.
     """
 
     __tablename__ = "post_scores"
-    __table_args__ = (UniqueConstraint("post_id", "prompt_version"),)
+    __table_args__ = (
+        UniqueConstraint("post_id", "prompt_version", "filter_model", "extract_model"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     post_id: Mapped[str] = mapped_column(String, ForeignKey("posts.id"), index=True)
@@ -127,8 +130,9 @@ class PostScore(Base):
     claims_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    filter_model: Mapped[str | None] = mapped_column(String, nullable=True)
-    extract_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Recorded on every row (even free skips) — part of the config identity.
+    filter_model: Mapped[str] = mapped_column(String, default="")
+    extract_model: Mapped[str] = mapped_column(String, default="")
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)

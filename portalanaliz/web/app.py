@@ -150,7 +150,7 @@ def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
         .where(*_scoped_scores(),
                PostScore.undervalued.is_(True),
                PostScore.tickers_json.like(f'%"{ticker}"%'))
-        .order_by(Post.post_time.desc()).limit(30)
+        .order_by(Post.post_time.desc()).limit(200)
     ).all()
     best = []
     for score, post in scored:

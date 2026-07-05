@@ -28,7 +28,9 @@ rollup counting undervalued posts vs posts analyzed into `stock_scores`.
 - `--limit N` counts only posts that reach the LLM; prefilter skips are free
   and unlimited.
 - Provider-agnostic: model specs are `provider:model` where provider is
-  `anthropic` or `local` (OpenAI-compatible /chat/completions — Ollama,
+  `anthropic`, `local`, or `claude` (headless `claude -p` CLI — uses the
+  Claude subscription quota, e.g. `claude:opus`; cost_usd logs the
+  API-equivalent price) (OpenAI-compatible /chat/completions — Ollama,
   LM Studio, vLLM at `LOCAL_LLM_BASE_URL`). Everything after the first colon
   is the model name, so Ollama tags like `local:qwen3:8b` work. New providers
   go in `llm.py:make_client`.

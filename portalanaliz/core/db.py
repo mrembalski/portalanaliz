@@ -11,7 +11,10 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 DB_PATH = DATA_DIR / "portalanaliz.db"
 MEDIA_DIR = DATA_DIR / "media"
 
-engine = create_engine(f"sqlite:///{DB_PATH}", future=True)
+# timeout: tolerate concurrent writers (e.g. two scoring configs running
+# side by side) instead of failing fast with "database is locked".
+engine = create_engine(f"sqlite:///{DB_PATH}", future=True,
+                       connect_args={"timeout": 30})
 SessionLocal = sessionmaker(bind=engine, future=True, expire_on_commit=False)
 
 

@@ -1,16 +1,23 @@
 """Provider-agnostic LLM client for the scoring pipeline.
 
-Model specs are "provider:model", e.g. "anthropic:claude-haiku-4-5" or
+Model specs are "provider:model", e.g. "anthropic:claude-haiku-4-5",
 "local:qwen3:8b" (everything after the first colon is the model name, so
-Ollama tags with colons work). "local" talks to any OpenAI-compatible
-chat-completions endpoint (Ollama, LM Studio, vLLM).
+Ollama tags with colons work) or "claude:opus". Providers:
+
+- anthropic — Anthropic API (needs ANTHROPIC_API_KEY)
+- local     — any OpenAI-compatible chat-completions endpoint (Ollama, ...)
+- claude    — the local `claude` CLI in headless mode: burns the user's
+              Claude subscription quota instead of API credits.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass
 
 import httpx
@@ -126,6 +133,50 @@ class OpenAICompatClient(LLMClient):
         self._http.close()
 
 
+class ClaudeCLIClient(LLMClient):
+    """Headless `claude -p` — one subprocess per call, subscription quota.
+
+    --tools "" and a replaced --system-prompt keep the per-call context small
+    (~2.5k tokens instead of the full ~22k Claude Code system prompt);
+    MAX_THINKING_TOKENS=0 disables thinking. total_cost_usd from the CLI is
+    the API-equivalent price, recorded for comparison even though a
+    subscription isn't billed per call.
+    """
+
+    def __init__(self, spec: str, model: str):
+        super().__init__(spec)
+        if shutil.which("claude") is None:
+            raise LLMError("`claude` CLI not found on PATH (needed for claude:* models)")
+        self.model = model
+
+    def complete(self, system: str, user: str, max_tokens: int = 1024) -> LLMResponse:
+        proc = subprocess.run(
+            ["claude", "-p", user, "--system-prompt", system,
+             "--model", self.model, "--output-format", "json", "--tools", ""],
+            capture_output=True, text=True, timeout=600,
+            env={**os.environ, "MAX_THINKING_TOKENS": "0"},
+        )
+        if proc.returncode != 0:
+            raise LLMError(f"claude CLI exit {proc.returncode}: "
+                           f"{(proc.stderr or proc.stdout)[:300]}")
+        try:
+            data = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise LLMError(f"claude CLI non-JSON output: {proc.stdout[:300]}") from exc
+        if data.get("is_error"):
+            raise LLMError(f"claude CLI error result: {str(data)[:300]}")
+        usage = data.get("usage") or {}
+        inp = (int(usage.get("input_tokens") or 0)
+               + int(usage.get("cache_creation_input_tokens") or 0)
+               + int(usage.get("cache_read_input_tokens") or 0))
+        return LLMResponse(
+            text=data.get("result") or "", model=self.spec,
+            input_tokens=inp,
+            output_tokens=int(usage.get("output_tokens") or 0),
+            cost_usd=float(data.get("total_cost_usd") or 0.0),
+        )
+
+
 def make_client(spec: str, settings: ScoringSettings) -> LLMClient:
     provider, _, model = spec.partition(":")
     if not model:
@@ -134,7 +185,10 @@ def make_client(spec: str, settings: ScoringSettings) -> LLMClient:
         return AnthropicClient(spec, model, settings.anthropic_api_key)
     if provider == "local":
         return OpenAICompatClient(spec, model, settings.local_base_url, settings.local_api_key)
-    raise LLMError(f"unknown provider {provider!r} in {spec!r} (use anthropic: or local:)")
+    if provider == "claude":
+        return ClaudeCLIClient(spec, model)
+    raise LLMError(f"unknown provider {provider!r} in {spec!r} "
+                   "(use anthropic:, local: or claude:)")
 
 
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)

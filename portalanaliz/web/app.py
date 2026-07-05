@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select, text
+from sqlalchemy import case, func, select, text
 from sqlalchemy.orm import Session
 
 from portalanaliz.core.config import load_scoring_settings
@@ -163,11 +163,30 @@ def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
     } if best else {}
     topics_for_ticker = session.scalars(
         select(Topic).where(Topic.ticker_hint == ticker)).all()
+    # Every config that judged posts in this ticker's topics — model comparison.
+    flagged = case(
+        (PostScore.undervalued.is_(True)
+         & PostScore.tickers_json.like(f'%"{ticker}"%'), 1),
+        else_=0)
+    configs = session.execute(
+        select(PostScore.prompt_version, PostScore.filter_model,
+               PostScore.extract_model,
+               func.count(PostScore.id).label("analyzed"),
+               func.sum(flagged).label("undervalued"))
+        .join(Post, Post.id == PostScore.post_id)
+        .join(Topic, Topic.id == Post.topic_id)
+        .where(Topic.ticker_hint == ticker, PostScore.status == "scored")
+        .group_by(PostScore.prompt_version, PostScore.filter_model,
+                  PostScore.extract_model)
+        .order_by(func.count(PostScore.id).desc())
+    ).all()
+    active = (SCORING.prompt, SCORING.filter_model, SCORING.extract_model)
     if not history and not best and not topics_for_ticker:
         raise HTTPException(404)
     return templates.TemplateResponse(request, "stock.html", {
         "ticker": ticker, "history": history, "best": best,
         "topic_map": topic_map, "topics_for_ticker": topics_for_ticker,
+        "configs": configs, "active_config": active,
     })
 
 

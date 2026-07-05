@@ -36,8 +36,8 @@ class ScoringSettings:
                  at LOCAL_LLM_BASE_URL
     """
 
-    filter_model: str = "anthropic:claude-haiku-4-5"
-    extract_model: str = "anthropic:claude-sonnet-5"
+    filter_model: str = "local:qwen3.6:27b"
+    extract_model: str = "local:qwen3.6:27b"
     # Named prompt set from portalanaliz/scoring/prompts.py:PROMPTS.
     prompt: str = "uv1"
     # Same semantics as Settings.focus_tickers; shares the FOCUS_TICKERS var.

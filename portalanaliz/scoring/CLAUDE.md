@@ -1,8 +1,10 @@
 # Scoring module notes
 
-Pipeline per post: free prefilter (length >= 200 chars stripped, Polish analysis
-keywords) -> LLM relevance filter -> LLM extraction (tickers, direction, claims,
-quality 0-100) -> per-ticker rollup into `stock_scores`.
+Goal: binary UNDERVALUATION SIGNAL per post — not company scoring. Pipeline per
+post: free prefilter (length >= 200 chars stripped, Polish analysis keywords)
+-> LLM relevance filter (chit-chat gate) -> LLM undervaluation call
+(`undervalued` 0/1 + tickers it applies to + one-line reason) -> per-ticker
+rollup counting undervalued posts vs posts analyzed into `stock_scores`.
 
 ## Invariants
 
@@ -28,15 +30,19 @@ quality 0-100) -> per-ticker rollup into `stock_scores`.
   people's words.
 - Cost is logged per post (`post_scores.cost_usd`); local models log $0.
   Anthropic prices live in `llm.py:ANTHROPIC_PRICING` (USD/MTok, sticker).
-- Rollup anchors `as_of` to the newest scored post (not today) so a
-  historical backfill still produces a meaningful window; rows are
-  upserted per (ticker, as_of-date), keeping history for charts.
+- Rollup counts: `posts_analyzed` = scored posts in the ticker's topics
+  (denominator via `topic.ticker_hint`); `undervalued_posts` = posts whose
+  signal names the ticker (`tickers_json`; falls back to the topic's hint when
+  the model returns none). `as_of` anchors to the newest scored post (not
+  today); rows upserted per (ticker, as_of-date), keeping history for charts.
+- `post_scores.quality/direction/claims_json` are legacy columns from the
+  pre-pivot quality-scoring era (prompt_version "v1") — readable, not written.
 
 ## Config (.env, all overridable per run via CLI flags)
 
 `SCORING_FILTER_MODEL` (default `anthropic:claude-haiku-4-5`),
 `SCORING_EXTRACT_MODEL` (default `anthropic:claude-sonnet-5`),
-`SCORING_PROMPT` (default `v1`), `FOCUS_TICKERS` (e.g. `SNT,VOT`),
+`SCORING_PROMPT` (default `uv1`), `FOCUS_TICKERS` (e.g. `SNT,VOT`),
 `ANTHROPIC_API_KEY`, `LOCAL_LLM_BASE_URL` (default `http://localhost:11434/v1`),
 `LOCAL_LLM_API_KEY`. CLI: `--filter-model --extract-model --prompt --tickers`.
 `stats` prints a per-config breakdown and marks the active one.
@@ -46,7 +52,8 @@ quality 0-100) -> per-ticker rollup into `stock_scores`.
 - JSON is requested via prompt (not provider-specific structured-output
   APIs) so any provider works; `parse_json_response()` tolerates code
   fences, `<think>` blocks, and surrounding prose.
-- Small local models (gemma3:4b) hallucinate company names in `tickers[].name`
-  and non-GPW tickers; treat `name` as decoration, join on `ticker`.
-- Direction of a post = its primary ticker's direction (topic `ticker_hint`
-  as fallback match).
+- Small local models (gemma3:4b) sometimes invent non-GPW tickers; the
+  rollup only trusts `tickers_json` for the numerator and the topic's
+  `ticker_hint` for the denominator.
+- `tickers_json` is a plain list of ticker strings under "uv*" prompt sets;
+  legacy "v1" rows hold a list of dicts.

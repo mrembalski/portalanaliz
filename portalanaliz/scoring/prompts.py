@@ -2,9 +2,13 @@
 
 PROMPTS is a registry of named, immutable prompt sets. Pick one via
 SCORING_PROMPT in .env or `--prompt <name>` on the CLI; the name is stored as
-post_scores.prompt_version. To experiment, ADD a new entry (e.g. "v2",
-"v1-strict") — never edit an existing one that has scored rows, or stored
+post_scores.prompt_version. To experiment, ADD a new entry (e.g. "uv2",
+"uv1-strict") — never edit an existing one that has scored rows, or stored
 results stop meaning what they meant.
+
+Current goal: binary undervaluation signal per post (not company scoring) —
+stage 1 gates out chit-chat, stage 2 answers "does the author argue the stock
+is undervalued?" with 0/1 + tickers + short reason.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ class PromptSet:
     extract_system: str
 
 
-_FILTER_V1 = """\
+_FILTER_UV1 = """\
 Jesteś klasyfikatorem postów z polskiego forum giełdowego (GPW, portalanaliz.pl).
 
 Oceń, czy post zawiera FAKTYCZNĄ ANALIZĘ spółki lub akcji — czyli co najmniej jedno z:
@@ -33,39 +37,37 @@ czysta analiza techniczna bez odniesienia do spółki ("wsparcie na 12 zł").
 
 Odpowiedz WYŁĄCZNIE obiektem JSON: {"analysis": true} lub {"analysis": false}"""
 
-_EXTRACT_V1 = """\
-Jesteś analitykiem ekstrahującym dane z postów polskiego forum giełdowego (GPW).
+_EXTRACT_UV1 = """\
+Jesteś analitykiem czytającym posty polskiego forum giełdowego (GPW).
 Dostaniesz post uznany za analizę spółki. Wątek dotyczy spółki wskazanej w
-nagłówku ("ticker wątku"), ale post może omawiać też inne spółki.
+nagłówku ("ticker wątku"), ale post może dotyczyć też innych spółek.
 
-Odpowiedz WYŁĄCZNIE obiektem JSON o strukturze:
+Twoje JEDYNE zadanie: czy autor stawia tezę, że spółka jest NIEDOWARTOŚCIOWANA —
+że rynek wycenia ją poniżej wartości? Sygnały: niska wycena wskaźnikowa na tle
+wyników/branży (C/Z, EV/EBITDA...), cena poniżej oszacowanej wartości
+wewnętrznej, kurs docelowy/wycena powyżej obecnej ceny z argumentacją,
+"rynek nie dostrzega", aktywa/gotówka warte więcej niż kapitalizacja.
+
+NIE jest sygnałem niedowartościowania: sam optymizm lub oczekiwanie wzrostu bez
+odniesienia do wyceny, analiza techniczna, nadzieja na kontrakt/produkt bez
+zestawienia z obecną wyceną, relacjonowanie wyników bez tezy o wycenie.
+
+Odpowiedz WYŁĄCZNIE obiektem JSON:
 {
-  "tickers": [
-    {"ticker": "SNT", "name": "Synektik", "direction": "bullish|bearish|neutral", "is_primary": true}
-  ],
-  "claims": ["kluczowe twierdzenia: mnożniki wyceny, katalizatory, ceny docelowe, liczby"],
-  "quality": 0,
-  "summary": "1-2 zdania po polsku streszczające tezę posta"
+  "undervalued": true|false,
+  "tickers": ["SNT"],
+  "reason": "jedno zdanie po polsku: dlaczego tak/nie, z liczbami jeśli są"
 }
 
-Zasady:
-- "tickers": każda spółka realnie OMAWIANA w poście (nie tylko wspomniana z nazwy);
-  ticker GPW jeśli znany, inaczej null; "is_primary" = spółka wątku.
-- "direction": kierunek tezy autora wobec danej spółki.
-- "claims": konkretne, weryfikowalne twierdzenia (max 8), po polsku, z liczbami gdzie są.
-- "quality" 0-100 — głębokość analizy:
-  0-20: opinia bez poparcia; 21-40: pojedynczy argument lub liczba;
-  41-60: kilka argumentów, podstawowe liczby; 61-80: solidna analiza z danymi
-  finansowymi i uzasadnieniem; 81-100: dogłębna analiza z wyceną, źródłami,
-  scenariuszami.
-Nie dodawaj żadnego tekstu poza JSON."""
+"tickers": spółki, których dotyczy sygnał niedowartościowania (tickery GPW);
+pusta lista gdy "undervalued" jest false. Nie dodawaj tekstu poza JSON."""
 
 
 PROMPTS: dict[str, PromptSet] = {
-    "v1": PromptSet(filter_system=_FILTER_V1, extract_system=_EXTRACT_V1),
+    "uv1": PromptSet(filter_system=_FILTER_UV1, extract_system=_EXTRACT_UV1),
 }
 
-DEFAULT_PROMPT = "v1"
+DEFAULT_PROMPT = "uv1"
 
 
 def get_prompts(name: str) -> PromptSet:

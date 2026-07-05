@@ -39,7 +39,7 @@ class ScoringSettings:
     filter_model: str = "anthropic:claude-haiku-4-5"
     extract_model: str = "anthropic:claude-sonnet-5"
     # Named prompt set from portalanaliz/scoring/prompts.py:PROMPTS.
-    prompt: str = "v1"
+    prompt: str = "uv1"
     # Same semantics as Settings.focus_tickers; shares the FOCUS_TICKERS var.
     tickers: tuple[str, ...] = ()
     anthropic_api_key: str = ""

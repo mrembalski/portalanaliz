@@ -92,6 +92,9 @@ def index(request: Request, session: Session = Depends(db)):
             select(Topic).where(Topic.id.in_({p.topic_id for p in recent}))).all()
     }
     scoring = {
+        "undervalued": session.scalar(select(func.count(PostScore.id))
+                                      .where(*_scoped_scores(),
+                                             PostScore.undervalued.is_(True))) or 0,
         "scored": session.scalar(select(func.count(PostScore.id))
                                  .where(*_scoped_scores(),
                                         PostScore.status == "scored")) or 0,
@@ -109,7 +112,7 @@ def index(request: Request, session: Session = Depends(db)):
 
 
 def _latest_stock_scores(session: Session, limit: int | None = None) -> list[StockScore]:
-    """Most recent stock_scores row per ticker, ordered by attention."""
+    """Most recent stock_scores row per ticker, most undervaluation signals first."""
     latest = (
         select(StockScore.ticker, func.max(StockScore.as_of).label("as_of"))
         .group_by(StockScore.ticker).subquery()
@@ -118,7 +121,8 @@ def _latest_stock_scores(session: Session, limit: int | None = None) -> list[Sto
         select(StockScore)
         .join(latest, (StockScore.ticker == latest.c.ticker)
               & (StockScore.as_of == latest.c.as_of))
-        .order_by(StockScore.attention.desc())
+        .order_by(StockScore.undervalued_posts.desc(),
+                  StockScore.posts_analyzed.desc())
     )
     if limit:
         q = q.limit(limit)
@@ -139,22 +143,20 @@ def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
         select(StockScore).where(StockScore.ticker == ticker)
         .order_by(StockScore.as_of.desc()).limit(60)
     ).all()
-    # Best-scored analysis posts mentioning this ticker.
+    # Posts flagging this ticker as undervalued, newest first.
     scored = session.execute(
         select(PostScore, Post)
         .join(Post, Post.id == PostScore.post_id)
         .where(*_scoped_scores(),
-               PostScore.status == "scored",
+               PostScore.undervalued.is_(True),
                PostScore.tickers_json.like(f'%"{ticker}"%'))
-        .order_by(PostScore.quality.desc()).limit(20)
+        .order_by(Post.post_time.desc()).limit(30)
     ).all()
     best = []
     for score, post in scored:
-        tickers = json.loads(score.tickers_json or "[]")
-        mention = next((t for t in tickers if t.get("ticker") == ticker), None)
-        if mention is None:
-            continue  # LIKE false positive (ticker inside a name string)
-        best.append({"score": score, "post": post, "direction": mention.get("direction")})
+        if ticker not in json.loads(score.tickers_json or "[]"):
+            continue  # LIKE false positive (ticker substring of another)
+        best.append({"score": score, "post": post})
     topic_map = {
         t.id: t for t in session.scalars(select(Topic).where(
             Topic.id.in_({b["post"].topic_id for b in best}))).all()

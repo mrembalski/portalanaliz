@@ -123,12 +123,16 @@ class PostScore(Base):
     # skipped_short | skipped_keywords | chit_chat | scored | error
     status: Mapped[str] = mapped_column(String, index=True)
     is_analysis: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The signal: does the post argue the stock is undervalued? (None = not scored)
+    undervalued: Mapped[bool | None] = mapped_column(Boolean, nullable=True, index=True)
+    # JSON list of ticker strings the undervaluation claim applies to.
+    tickers_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # short reason (PL)
+    # Legacy columns from the quality-scoring era (prompt_version "v1") — kept
+    # so old rows stay readable; new prompt sets don't write them.
     quality: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    # Direction of the post's primary thesis: bullish | bearish | neutral | mixed
     direction: Mapped[str | None] = mapped_column(String, nullable=True)
-    tickers_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
-    claims_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
-    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    claims_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Recorded on every row (even free skips) — part of the config identity.
     filter_model: Mapped[str] = mapped_column(String, default="")
@@ -142,7 +146,11 @@ class PostScore(Base):
 
 
 class StockScore(Base):
-    """Per-ticker daily rollup of post sentiment x quality (history kept)."""
+    """Per-ticker rollup: how many scored posts flag the stock as undervalued.
+
+    One row per (ticker, as_of) where as_of anchors to the newest scored post
+    at rollup time — history accumulates as the archive/scoring grows.
+    """
 
     __tablename__ = "stock_scores"
     __table_args__ = (UniqueConstraint("ticker", "as_of"),)
@@ -150,12 +158,10 @@ class StockScore(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ticker: Mapped[str] = mapped_column(String, index=True)
     as_of: Mapped[date] = mapped_column(Date, index=True)
-    # Recency-decayed sum of quality-weighted mentions ("how much good analysis lately").
-    attention: Mapped[float] = mapped_column(Float, default=0.0)
-    # Weighted mean direction in [-1, 1].
-    sentiment: Mapped[float] = mapped_column(Float, default=0.0)
-    post_count: Mapped[int] = mapped_column(Integer, default=0)
-    avg_quality: Mapped[float] = mapped_column(Float, default=0.0)
+    # Scored (LLM-judged) posts in this ticker's topics.
+    posts_analyzed: Mapped[int] = mapped_column(Integer, default=0)
+    # Posts carrying an undervaluation signal for this ticker.
+    undervalued_posts: Mapped[int] = mapped_column(Integer, default=0)
     computed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 

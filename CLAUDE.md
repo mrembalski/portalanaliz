@@ -9,7 +9,7 @@ potentially undervalued stocks.
 - `portalanaliz/core/` — SQLAlchemy models, SQLite setup (incl. FTS5), config from `.env`
 - `portalanaliz/scraper/` — Tapatalk client, rate limiter, resumable sync CLI, media downloader
 - `portalanaliz/web/` — FastAPI + Jinja2 UI (dashboard, browser, search, authors)
-- `portalanaliz/scoring/` — LLM pipeline (prefilter → relevance → extraction → rollup), provider-agnostic (Anthropic or local OpenAI-compatible)
+- `portalanaliz/scoring/` — LLM pipeline for binary per-post undervaluation signals (prefilter → relevance → undervalued 0/1 → per-ticker signal counts), provider-agnostic (Anthropic or local OpenAI-compatible)
 - `data/` — gitignored: `portalanaliz.db` (SQLite) and `media/` (sha256-named files)
 
 ## Commands

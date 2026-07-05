@@ -1,20 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Stocks{% endblock %}
 {% block content %}
-<h1>Stock scores</h1>
-<p class="muted">Attention = recency-decayed sum of quality-weighted analysis posts.
-Sentiment ∈ [−1, 1], weighted by the same. Latest rollup per ticker.</p>
+<h1>Undervaluation signals</h1>
+<p class="muted">Undervalued = posts where the author argues the stock trades below
+its value. Analyzed = LLM-judged posts in the ticker's topics. Latest rollup per ticker.</p>
 {% if rows %}
 <table>
-  <tr><th>Ticker</th><th>Attention</th><th>Sentiment</th><th>Posts</th><th>Avg quality</th><th>As of</th></tr>
+  <tr><th>Ticker</th><th>Undervalued posts</th><th>Posts analyzed</th><th>Share</th><th>As of</th></tr>
   {% for s in rows %}
   <tr>
     <td><a href="/stocks/{{ s.ticker }}"><span class="badge">{{ s.ticker }}</span></a></td>
-    <td>{{ "%.2f"|format(s.attention) }}</td>
-    <td>{% if s.sentiment > 0.2 %}🟢{% elif s.sentiment < -0.2 %}🔴{% else %}⚪{% endif %}
-        {{ "%+.2f"|format(s.sentiment) }}</td>
-    <td>{{ s.post_count }}</td>
-    <td>{{ s.avg_quality }}</td>
+    <td>{{ s.undervalued_posts }}</td>
+    <td>{{ s.posts_analyzed }}</td>
+    <td class="muted">{% if s.posts_analyzed %}{{ "%.0f"|format(100 * s.undervalued_posts / s.posts_analyzed) }}%{% else %}—{% endif %}</td>
     <td class="muted">{{ s.as_of }}</td>
   </tr>
   {% endfor %}

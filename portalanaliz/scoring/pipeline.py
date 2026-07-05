@@ -1,4 +1,7 @@
-"""Scoring pipeline: prefilter -> LLM relevance filter -> LLM extraction.
+"""Scoring pipeline: prefilter -> LLM relevance filter -> LLM undervaluation call.
+
+Output per scored post is a binary undervaluation signal (post_scores.undervalued)
+plus the tickers it applies to and a one-line reason.
 
 Resumable by construction: a post is "done" when a post_scores row exists for
 the active config (prompt set + filter model + extract model); each post
@@ -24,8 +27,6 @@ from portalanaliz.scoring.textutil import MIN_CHARS, has_analysis_signal, strip_
 
 log = logging.getLogger(__name__)
 
-VALID_DIRECTIONS = {"bullish", "bearish", "neutral", "mixed"}
-
 
 def unscored_posts(session: Session, settings: ScoringSettings,
                    batch: int = 500) -> list[Post]:
@@ -47,8 +48,8 @@ def score_posts(session: Session, settings: ScoringSettings,
     """Process unscored posts. Returns counters incl. token/cost totals."""
     prompt_set = prompts.get_prompts(settings.prompt)
     stats = {"skipped_short": 0, "skipped_keywords": 0, "chit_chat": 0,
-             "scored": 0, "error": 0, "input_tokens": 0, "output_tokens": 0,
-             "cost_usd": 0.0}
+             "scored": 0, "undervalued": 0, "error": 0,
+             "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
     filter_client: LLMClient | None = None
     extract_client: LLMClient | None = None
     llm_calls_for = 0  # posts that consumed LLM budget
@@ -107,44 +108,34 @@ def _score_one(session: Session, settings: ScoringSettings, prompt_set: prompts.
                 prompt_set.extract_system,
                 prompts.extraction_user(title, topic.ticker_hint if topic else None,
                                         str(post.post_time or ""), text),
-                max_tokens=1500,
+                max_tokens=300,
             )
             _add_usage(row, stats, r)
             data = parse_json_response(r.text)
             _apply_extraction(row, data, topic)
             row.status = "scored"
             stats["scored"] += 1
+            if row.undervalued:
+                stats["undervalued"] += 1
     except (LLMError, json.JSONDecodeError, ValueError) as exc:
         row.error = str(exc)[:1000]
         stats["error"] += 1
         log.warning("post %s: %s", post.id, exc)
     session.add(row)
     session.commit()
-    log.info("post %s -> %s (q=%s, cost=$%.5f, run total $%.4f)",
-             post.id, row.status, row.quality, row.cost_usd, stats["cost_usd"])
+    log.info("post %s -> %s (undervalued=%s, cost=$%.5f, run total $%.4f)",
+             post.id, row.status, row.undervalued, row.cost_usd, stats["cost_usd"])
 
 
 def _apply_extraction(row: PostScore, data: dict, topic: Topic | None) -> None:
-    tickers = [t for t in (data.get("tickers") or []) if isinstance(t, dict)]
-    for t in tickers:
-        if t.get("direction") not in VALID_DIRECTIONS:
-            t["direction"] = "neutral"
-        if t.get("ticker"):
-            t["ticker"] = str(t["ticker"]).upper()
-    row.tickers_json = json.dumps(tickers, ensure_ascii=False)
-    claims = [str(c) for c in (data.get("claims") or [])][:8]
-    row.claims_json = json.dumps(claims, ensure_ascii=False)
-    row.summary = str(data.get("summary") or "")[:1000] or None
-    quality = data.get("quality")
-    row.quality = max(0, min(100, int(quality))) if quality is not None else None
-
-    # Post-level direction = the primary ticker's (fallback: topic ticker, then first).
-    primary = next((t for t in tickers if t.get("is_primary")), None)
-    if primary is None and topic and topic.ticker_hint:
-        primary = next((t for t in tickers if t.get("ticker") == topic.ticker_hint), None)
-    if primary is None and tickers:
-        primary = tickers[0]
-    row.direction = primary.get("direction") if primary else None
+    row.undervalued = bool(data.get("undervalued"))
+    tickers = [str(t).upper() for t in (data.get("tickers") or []) if t]
+    # The signal must land on some ticker; default to the topic's own stock.
+    if row.undervalued and not tickers and topic and topic.ticker_hint:
+        tickers = [topic.ticker_hint]
+    row.tickers_json = json.dumps(tickers if row.undervalued else [],
+                                  ensure_ascii=False)
+    row.summary = str(data.get("reason") or "")[:1000] or None
 
 
 def _new_row(settings: ScoringSettings, post: Post, status: str) -> PostScore:

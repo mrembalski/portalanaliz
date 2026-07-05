@@ -14,6 +14,7 @@ is undervalued?" with 0/1 + tickers + short reason.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -63,20 +64,91 @@ Odpowiedz WYŁĄCZNIE obiektem JSON:
 pusta lista gdy "undervalued" jest false. Nie dodawaj tekstu poza JSON."""
 
 
+_EXTRACT_UV2 = """\
+Jesteś analitykiem czytającym posty polskiego forum giełdowego (GPW).
+Dostaniesz post uznany za analizę spółki. Wątek dotyczy spółki wskazanej w
+nagłówku ("ticker wątku"), ale post może dotyczyć też innych spółek.
+
+Twoje JEDYNE zadanie: czy autor stawia KONKRETNĄ tezę o niedowartościowaniu —
+tj. wprost porównuje obecną wycenę rynkową z wartością, którą sam szacuje lub
+wywodzi. Wymagany jest LICZBOWY argument wyceny, co najmniej jeden z:
+- wskaźnik wyceny (C/Z, C/WK, EV/EBITDA...) zestawiony z wynikami, branżą
+  lub historią i oceniony jako niski,
+- oszacowana wartość/kurs docelowy powyżej obecnej ceny (z liczbą),
+- aktywa/gotówka/segmenty wycenione i porównane z kapitalizacją.
+
+NIE licz jako sygnału (odpowiedz false):
+- optymizm, "będzie rosło", dobre perspektywy — bez porównania z wyceną,
+- sama relacja wyników (nawet świetnych) bez tezy "rynek tego nie wycenia",
+- analiza techniczna, przeczucia, sentyment,
+- powtórzenie cudzej rekomendacji bez własnego odniesienia do wyceny,
+- słowo "tanio"/"niedowartościowana" rzucone bez żadnej liczby.
+
+Odpowiedz WYŁĄCZNIE obiektem JSON:
+{
+  "undervalued": true|false,
+  "tickers": ["SNT"],
+  "reason": "jedno zdanie po polsku: jaki liczbowy argument padł (lub czego zabrakło)"
+}
+
+"tickers": spółki, których dotyczy sygnał (tickery GPW); pusta lista gdy
+"undervalued" jest false. Nie dodawaj tekstu poza JSON."""
+
+
 PROMPTS: dict[str, PromptSet] = {
     "uv1": PromptSet(filter_system=_FILTER_UV1, extract_system=_EXTRACT_UV1),
+    # Stricter: flags only posts with an explicit, numeric valuation argument.
+    "uv2": PromptSet(filter_system=_FILTER_UV1, extract_system=_EXTRACT_UV2),
 }
 
 DEFAULT_PROMPT = "uv1"
 
+# User-defined prompt sets live here as <name>.prompt files with [filter] and
+# [extract] sections — no code edit needed. The FILE NAME is the stored
+# prompt_version, so treat a file with scored rows as immutable: copy to a new
+# name to iterate.
+PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
+
+
+def _load_prompt_file(path: Path) -> PromptSet:
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        marker = line.strip().lower()
+        if marker in ("[filter]", "[extract]"):
+            current = marker[1:-1]
+            sections[current] = []
+        elif current is not None:
+            sections[current].append(line)
+    missing = {"filter", "extract"} - set(sections)
+    if missing:
+        raise KeyError(f"{path} is missing section(s): {', '.join(sorted(missing))}")
+    return PromptSet(
+        filter_system="\n".join(sections["filter"]).strip(),
+        extract_system="\n".join(sections["extract"]).strip(),
+    )
+
+
+def available_prompts() -> dict[str, str]:
+    """name -> origin ("built-in" or file path)."""
+    out = {name: "built-in" for name in PROMPTS}
+    if PROMPTS_DIR.is_dir():
+        for path in sorted(PROMPTS_DIR.glob("*.prompt")):
+            out.setdefault(path.stem, str(path))
+    return out
+
 
 def get_prompts(name: str) -> PromptSet:
-    try:
+    if name in PROMPTS:
         return PROMPTS[name]
-    except KeyError:
-        raise KeyError(
-            f"unknown prompt set {name!r}; available: {', '.join(sorted(PROMPTS))}"
-        ) from None
+    path = PROMPTS_DIR / f"{name}.prompt"
+    if path.is_file():
+        return _load_prompt_file(path)
+    raise KeyError(
+        f"unknown prompt set {name!r}; available: "
+        + ", ".join(sorted(available_prompts()))
+        + f" (or add {path})"
+    )
 
 
 def extraction_user(topic_title: str, ticker_hint: str | None, post_time: str,

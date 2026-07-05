@@ -4,16 +4,23 @@ Usage:
     python -m portalanaliz.scoring score  [--limit N]   # score unscored posts
     python -m portalanaliz.scoring rollup               # recompute stock_scores
     python -m portalanaliz.scoring stats                # progress + cost per config
+    python -m portalanaliz.scoring prompts              # list available prompt sets
     python -m portalanaliz.scoring all    [--limit N]   # score then rollup
 
 Config comes from .env (SCORING_FILTER_MODEL, SCORING_EXTRACT_MODEL,
 SCORING_PROMPT, FOCUS_TICKERS) and can be overridden per run:
 
-    --filter-model local:gemma3:4b   --extract-model local:qwen3:8b
-    --prompt v1                      --tickers SNT,VOT   (empty string = all)
+    --filter-model local:gemma3:4b   --extract-model local:qwen3.6:27b
+    --prompt uv2                     --tickers SNT,VOT   (empty string = all)
 
 A config is (prompt, filter model, extract model); changing any of them scores
 posts fresh under the new config while keeping old rows for comparison.
+Reruns within a config are explicit:
+
+    --rerun error            # drop + rescore this config's error rows
+    --rerun chit_chat,scored # drop + rescore those statuses
+    --rerun all              # full fresh pass for this config
+    (--rerun respects --tickers/FOCUS_TICKERS; other configs never touched)
 """
 
 from __future__ import annotations
@@ -76,7 +83,7 @@ def print_stats(session, settings: ScoringSettings) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="LLM scoring of archived posts")
-    parser.add_argument("command", choices=["score", "rollup", "stats", "all"])
+    parser.add_argument("command", choices=["score", "rollup", "stats", "prompts", "all"])
     parser.add_argument("--limit", type=int, default=None,
                         help="max posts sent to the LLM this run (skips are free)")
     parser.add_argument("--filter-model", help="override SCORING_FILTER_MODEL")
@@ -84,8 +91,11 @@ def main() -> None:
     parser.add_argument("--prompt", help="override SCORING_PROMPT (named set in prompts.py)")
     parser.add_argument("--tickers",
                         help='override FOCUS_TICKERS, e.g. "SNT,VOT"; "" = all')
+    parser.add_argument("--rerun", metavar="WHAT",
+                        help='rescore within the active config: "all" or statuses '
+                             'like "error" / "chit_chat,scored" (drops those rows first)')
     parser.add_argument("--retry-errors", action="store_true",
-                        help="drop this config's error rows first so they get rescored")
+                        help='shorthand for --rerun error')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -108,15 +118,31 @@ def main() -> None:
     if overrides:
         settings = dataclasses.replace(settings, **overrides)
 
-    if args.retry_errors:
-        from sqlalchemy import delete
-        n = session.execute(delete(PostScore).where(
+    rerun = args.rerun or ("error" if args.retry_errors else None)
+    if rerun:
+        from sqlalchemy import delete, select as sa_select
+
+        from portalanaliz.core.models import Post as P, Topic as T
+        q = delete(PostScore).where(
             PostScore.prompt_version == settings.prompt,
             PostScore.filter_model == settings.filter_model,
-            PostScore.extract_model == settings.extract_model,
-            PostScore.status == "error")).rowcount
+            PostScore.extract_model == settings.extract_model)
+        if rerun != "all":
+            q = q.where(PostScore.status.in_(
+                [s.strip() for s in rerun.split(",") if s.strip()]))
+        if settings.tickers:
+            in_scope = sa_select(P.id).join(T, T.id == P.topic_id).where(
+                T.ticker_hint.in_(settings.tickers))
+            q = q.where(PostScore.post_id.in_(in_scope))
+        n = session.execute(q).rowcount
         session.commit()
-        log.info("dropped %d error rows for rescoring", n)
+        log.info("rerun %s: dropped %d rows of the active config", rerun, n)
+
+    if args.command == "prompts":
+        from portalanaliz.scoring.prompts import available_prompts
+        for name, origin in sorted(available_prompts().items()):
+            mark = " (active)" if name == settings.prompt else ""
+            print(f"{name:<16} {origin}{mark}")
 
     if args.command in ("score", "all"):
         log.info("config: prompt=%s filter=%s extract=%s tickers=%s",

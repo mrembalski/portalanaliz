@@ -21,6 +21,8 @@ python -m portalanaliz.scraper.sync all --forum-id 3 --budget 500   # sync (resu
 python -m portalanaliz.web                                    # UI on :8000 (preview config uses :8321)
 python -m portalanaliz.scoring all --limit 100                # LLM scoring (resumable)
 python -m portalanaliz.scoring stats                          # scoring progress + cost
+python -m portalanaliz.scoring prompts                        # list prompt sets
+python -m portalanaliz.scoring score --rerun all              # fresh pass of active config
 ```
 
 Sync subcommands: `forums | topics | posts | media | all`. Forum 3 = GPW stocks (main target).
@@ -30,8 +32,9 @@ Sync subcommands: `forums | topics | posts | media | all`. Forum 3 = GPW stocks 
 `.env` (never commit): `LOGIN`, `PASSWORD` — forum credentials. Optional:
 `TAPATALK_URL`, `MIN_REQUEST_INTERVAL`, `REQUEST_TIMEOUT`. Scoring:
 `ANTHROPIC_API_KEY`, `SCORING_FILTER_MODEL` / `SCORING_EXTRACT_MODEL`
-(`anthropic:<model>` or `local:<model>`), `SCORING_PROMPT` (named set in
-`scoring/prompts.py`), `LOCAL_LLM_BASE_URL` (Ollama default).
+(`anthropic:<model>` or `local:<model>`), `SCORING_PROMPT` (built-in set in
+`scoring/prompts.py` or a `prompts/<name>.prompt` file), `LOCAL_LLM_BASE_URL`
+(any OpenAI-compatible server; Ollama default).
 `FOCUS_TICKERS` (e.g. `SNT,VOT`) — global limiter: post sync and scoring only
 touch topics with those ticker hints; empty = everything.
 

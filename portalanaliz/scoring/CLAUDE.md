@@ -13,9 +13,15 @@ rollup counting undervalued posts vs posts analyzed into `stock_scores`.
   key with post_id. A post is "done" when a row exists for the ACTIVE config —
   changing prompt or model starts a fresh comparable pass; old rows stay.
   Rollup and web UI only read the active config's rows.
-- Prompts live in `prompts.py:PROMPTS` (named registry, selected via
-  SCORING_PROMPT / `--prompt`). To experiment, ADD a new named set — never
-  edit an existing one that has scored rows.
+- Prompts: built-ins in `prompts.py:PROMPTS` (`uv1`; `uv2` = stricter, requires
+  a numeric valuation argument) plus user files in `prompts/<name>.prompt`
+  ([filter] + [extract] sections; see `prompts/README.md`). Selected via
+  SCORING_PROMPT / `--prompt`; list with the `prompts` subcommand. To
+  experiment, ADD a new set/file — never edit one that has scored rows.
+- Reruns are explicit and config-scoped: `--rerun all` or
+  `--rerun <status,...>` drops the ACTIVE config's matching rows (honoring
+  the ticker scope) before scoring; other configs are never touched.
+  `--retry-errors` = `--rerun error`.
 - `FOCUS_TICKERS` (shared with the scraper) narrows scoring to topics with
   those ticker_hints; empty = whole archive. CLI `--tickers` overrides.
 - One commit per post — a killed run loses at most the in-flight post.
@@ -44,14 +50,18 @@ rollup counting undervalued posts vs posts analyzed into `stock_scores`.
 `SCORING_EXTRACT_MODEL` (default `anthropic:claude-sonnet-5`),
 `SCORING_PROMPT` (default `uv1`), `FOCUS_TICKERS` (e.g. `SNT,VOT`),
 `ANTHROPIC_API_KEY`, `LOCAL_LLM_BASE_URL` (default `http://localhost:11434/v1`),
-`LOCAL_LLM_API_KEY`. CLI: `--filter-model --extract-model --prompt --tickers`.
-`stats` prints a per-config breakdown and marks the active one.
+`LOCAL_LLM_API_KEY`. CLI: `--filter-model --extract-model --prompt --tickers
+--rerun --limit`. `stats` prints a per-config breakdown and marks the active
+one; `prompts` lists prompt sets and their origin.
 
 ## Gotchas
 
 - JSON is requested via prompt (not provider-specific structured-output
   APIs) so any provider works; `parse_json_response()` tolerates code
   fences, `<think>` blocks, and surrounding prose.
+- Reasoning models (qwen3+, deepseek-r1) burn completion tokens on thinking
+  before the JSON — keep max_tokens generous (2000/3000 in pipeline.py) or
+  responses truncate to empty content.
 - Small local models (gemma3:4b) sometimes invent non-GPW tickers; the
   rollup only trusts `tickers_json` for the numerator and the topic's
   `ticker_hint` for the denominator.

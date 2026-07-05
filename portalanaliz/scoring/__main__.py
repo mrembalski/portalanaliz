@@ -84,6 +84,8 @@ def main() -> None:
     parser.add_argument("--prompt", help="override SCORING_PROMPT (named set in prompts.py)")
     parser.add_argument("--tickers",
                         help='override FOCUS_TICKERS, e.g. "SNT,VOT"; "" = all')
+    parser.add_argument("--retry-errors", action="store_true",
+                        help="drop this config's error rows first so they get rescored")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -105,6 +107,16 @@ def main() -> None:
             t.strip().upper() for t in args.tickers.split(",") if t.strip())
     if overrides:
         settings = dataclasses.replace(settings, **overrides)
+
+    if args.retry_errors:
+        from sqlalchemy import delete
+        n = session.execute(delete(PostScore).where(
+            PostScore.prompt_version == settings.prompt,
+            PostScore.filter_model == settings.filter_model,
+            PostScore.extract_model == settings.extract_model,
+            PostScore.status == "error")).rowcount
+        session.commit()
+        log.info("dropped %d error rows for rescoring", n)
 
     if args.command in ("score", "all"):
         log.info("config: prompt=%s filter=%s extract=%s tickers=%s",

@@ -95,8 +95,11 @@ def _score_one(session: Session, settings: ScoringSettings, prompt_set: prompts.
     title = topic.title if topic else ""
     row = _new_row(settings, post, "error")
     try:
+        # Generous max_tokens: reasoning models (qwen3+, deepseek-r1) spend
+        # completion tokens on thinking before the tiny JSON answer — a tight
+        # cap truncates mid-reasoning and yields empty content.
         r = filter_client.complete(prompt_set.filter_system,
-                                   prompts.filter_user(title, text), max_tokens=64)
+                                   prompts.filter_user(title, text), max_tokens=2000)
         _add_usage(row, stats, r)
         is_analysis = bool(parse_json_response(r.text).get("analysis"))
         row.is_analysis = is_analysis
@@ -108,7 +111,7 @@ def _score_one(session: Session, settings: ScoringSettings, prompt_set: prompts.
                 prompt_set.extract_system,
                 prompts.extraction_user(title, topic.ticker_hint if topic else None,
                                         str(post.post_time or ""), text),
-                max_tokens=300,
+                max_tokens=3000,
             )
             _add_usage(row, stats, r)
             data = parse_json_response(r.text)

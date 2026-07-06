@@ -39,6 +39,7 @@
 {% endif %}
 
 <h2>Posts flagging undervaluation</h2>
+{% if other_config %}<p class="muted">Active config has no flags for this ticker — showing results from other configs (see table above).</p>{% endif %}
 {% if best %}
 {% for b in best %}
 <div class="post">

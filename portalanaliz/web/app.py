@@ -143,20 +143,32 @@ def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
         select(StockScore).where(StockScore.ticker == ticker)
         .order_by(StockScore.as_of.desc()).limit(60)
     ).all()
-    # Posts flagging this ticker as undervalued, newest first.
-    scored = session.execute(
-        select(PostScore, Post)
-        .join(Post, Post.id == PostScore.post_id)
-        .where(*_scoped_scores(),
-               PostScore.undervalued.is_(True),
-               PostScore.tickers_json.like(f'%"{ticker}"%'))
-        .order_by(Post.post_time.desc()).limit(200)
-    ).all()
-    best = []
-    for score, post in scored:
-        if ticker not in json.loads(score.tickers_json or "[]"):
-            continue  # LIKE false positive (ticker substring of another)
-        best.append({"score": score, "post": post})
+    # Posts flagging this ticker as undervalued, newest first. Prefer the
+    # active config; if it has nothing (e.g. only another model scored this
+    # ticker), fall back to all configs deduped by post.
+    def _flagged(scoped: bool):
+        q = (select(PostScore, Post)
+             .join(Post, Post.id == PostScore.post_id)
+             .where(PostScore.undervalued.is_(True),
+                    PostScore.tickers_json.like(f'%"{ticker}"%'))
+             .order_by(Post.post_time.desc()).limit(200))
+        if scoped:
+            q = q.where(*_scoped_scores())
+        rows, seen = [], set()
+        for score, post in session.execute(q):
+            if ticker not in json.loads(score.tickers_json or "[]"):
+                continue  # LIKE false positive (ticker substring of another)
+            if post.id in seen:
+                continue
+            seen.add(post.id)
+            rows.append({"score": score, "post": post})
+        return rows
+
+    best = _flagged(scoped=True)
+    other_config = False
+    if not best:
+        best = _flagged(scoped=False)
+        other_config = bool(best)
     topic_map = {
         t.id: t for t in session.scalars(select(Topic).where(
             Topic.id.in_({b["post"].topic_id for b in best}))).all()
@@ -187,6 +199,7 @@ def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
         "ticker": ticker, "history": history, "best": best,
         "topic_map": topic_map, "topics_for_ticker": topics_for_ticker,
         "configs": configs, "active_config": active,
+        "other_config": other_config,
     })
 
 

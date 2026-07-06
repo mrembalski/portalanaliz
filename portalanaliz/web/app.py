@@ -104,10 +104,11 @@ def index(request: Request, session: Session = Depends(db)):
                                .where(*_scoped_scores())) or 0.0,
     }
     top_stocks = _latest_stock_scores(session, limit=10)
+    hot = [r for r in _momentum_rows(session) if r["trend"] > 0][:5]
     return templates.TemplateResponse(request, "index.html", {
         "stats": stats, "media": media_by_status,
         "top_topics": top_topics, "recent": recent, "topic_titles": topic_titles,
-        "scoring": scoring, "top_stocks": top_stocks,
+        "scoring": scoring, "top_stocks": top_stocks, "hot": hot,
     })
 
 
@@ -127,6 +128,115 @@ def _latest_stock_scores(session: Session, limit: int | None = None) -> list[Sto
     if limit:
         q = q.limit(limit)
     return list(session.scalars(q))
+
+
+def _uv_color(pct: float | None) -> str:
+    """Undervalued share -> line color: gray (no data), slate 0% -> green 100%."""
+    if pct is None:
+        return "#d1d5db"
+    lo, hi = (0x64, 0x74, 0x8B), (0x16, 0xA3, 0x4A)
+    t = max(0.0, min(1.0, pct))
+    return "#%02x%02x%02x" % tuple(round(a + (b - a) * t) for a, b in zip(lo, hi))
+
+
+def _next_month(m: str) -> str:
+    y, mo = int(m[:4]), int(m[5:7])
+    return f"{y + mo // 12}-{(mo % 12) + 1:02d}"
+
+
+def _momentum_rows(session: Session, window: int = 6, span: int = 36,
+                   min_posts: int = 10) -> list[dict]:
+    """Per ticker: derivative of the rolling {window}-month post count, as
+    sparkline segments whose color encodes the share of that month's scored
+    posts flagging undervaluation (active config preferred, else the config
+    with the most scored rows for the ticker)."""
+    counts = session.execute(
+        select(Topic.ticker_hint, func.strftime("%Y-%m", Post.post_time).label("m"),
+               func.count(Post.id))
+        .join(Post, Post.topic_id == Topic.id)
+        .where(Topic.ticker_hint.is_not(None), Post.post_time.is_not(None))
+        .group_by(Topic.ticker_hint, "m")
+    ).all()
+    by_ticker: dict[str, dict[str, int]] = {}
+    for ticker, month, n in counts:
+        by_ticker.setdefault(ticker, {})[month] = n
+    if not by_ticker:
+        return []
+    last_month = max(m for months in by_ticker.values() for m in months)
+
+    scored = session.execute(
+        select(Topic.ticker_hint, func.strftime("%Y-%m", Post.post_time),
+               PostScore.prompt_version, PostScore.filter_model,
+               PostScore.extract_model, PostScore.undervalued, PostScore.tickers_json)
+        .join(Post, Post.id == PostScore.post_id)
+        .join(Topic, Topic.id == Post.topic_id)
+        .where(PostScore.status == "scored", Topic.ticker_hint.is_not(None))
+    ).all()
+    # ticker -> config -> month -> [scored, undervalued]
+    uv_raw: dict[str, dict[tuple, dict[str, list[int]]]] = {}
+    for ticker, month, pv, fm, em, uv, tj in scored:
+        bucket = uv_raw.setdefault(ticker, {}).setdefault((pv, fm, em), {}) \
+                       .setdefault(month, [0, 0])
+        bucket[0] += 1
+        if uv and ticker in (json.loads(tj) if tj else []):
+            bucket[1] += 1
+    active = (SCORING.prompt, SCORING.filter_model, SCORING.extract_model)
+
+    out = []
+    width, height = 240, 44
+    for ticker, months in by_ticker.items():
+        if sum(months.values()) < min_posts:
+            continue
+        # contiguous month axis: first post -> newest month in the archive
+        axis, m = [], min(months)
+        while m <= last_month:
+            axis.append(m)
+            m = _next_month(m)
+        series = [months.get(m, 0) for m in axis]
+        rolling = [sum(series[max(0, i - window + 1):i + 1]) for i in range(len(series))]
+        deriv = [rolling[i] - rolling[i - 1] for i in range(1, len(rolling))]
+        d_axis = axis[1:]
+        if len(deriv) < 2:
+            continue
+        deriv, d_axis = deriv[-span:], d_axis[-span:]
+
+        configs = uv_raw.get(ticker, {})
+        chosen = configs.get(active) or (
+            max(configs.values(), key=lambda c: sum(v[0] for v in c.values()))
+            if configs else {})
+        uv_pct = {m: (v[1] / v[0] if v[0] else None) for m, v in chosen.items()}
+
+        lo, hi = min(deriv), max(deriv)
+        spread = (hi - lo) or 1
+        step = width / max(1, len(deriv) - 1)
+        pts = [(round(i * step, 1),
+                round(height - 4 - (d - lo) / spread * (height - 8), 1))
+               for i, d in enumerate(deriv)]
+        segments = [
+            (*pts[i], *pts[i + 1], _uv_color(uv_pct.get(d_axis[i + 1])))
+            for i in range(len(pts) - 1)
+        ]
+        zero_y = round(height - 4 - (0 - lo) / spread * (height - 8), 1)
+        recent_scored = sum(v[0] for m, v in chosen.items() if m in d_axis[-window:])
+        recent_uv = sum(v[1] for m, v in chosen.items() if m in d_axis[-window:])
+        out.append({
+            "ticker": ticker,
+            "segments": segments,
+            "zero_y": zero_y if lo <= 0 <= hi else None,
+            "trend": round(sum(deriv[-3:]) / min(3, len(deriv)), 1),
+            "posts_window": rolling[-1],
+            "uv_recent": (recent_uv / recent_scored) if recent_scored else None,
+            "w": width, "h": height,
+        })
+    out.sort(key=lambda r: r["trend"], reverse=True)
+    return out
+
+
+@app.get("/momentum")
+def momentum(request: Request, session: Session = Depends(db)):
+    return templates.TemplateResponse(request, "momentum.html", {
+        "rows": _momentum_rows(session)[:50],
+    })
 
 
 @app.get("/stocks")

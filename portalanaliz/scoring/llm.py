@@ -101,19 +101,24 @@ class OpenAICompatClient(LLMClient):
         self._http = httpx.Client(
             base_url=base_url.rstrip("/"),
             headers={"Authorization": f"Bearer {api_key}"},
-            timeout=300.0,  # local inference can be slow
+            timeout=600.0,  # local inference can be slow (reasoning models especially)
         )
 
     def complete(self, system: str, user: str, max_tokens: int = 1024) -> LLMResponse:
-        resp = self._http.post("/chat/completions", json={
-            "model": self.model,
-            "max_tokens": max_tokens,
-            "temperature": 0,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        })
+        try:
+            resp = self._http.post("/chat/completions", json={
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "temperature": 0,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            })
+        except httpx.HTTPError as exc:
+            # Timeouts/disconnects become an error ROW for the post, not a
+            # crashed run (rescore later with --rerun error).
+            raise LLMError(f"local LLM request failed: {exc!r}") from exc
         if resp.status_code != 200:
             raise LLMError(f"local LLM HTTP {resp.status_code}: {resp.text[:300]}")
         data = resp.json()

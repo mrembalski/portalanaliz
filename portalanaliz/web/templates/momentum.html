@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Momentum{% endblock %}
+{% block content %}
+<h1>Discussion momentum</h1>
+<p class="muted">Line = month-over-month change (derivative) of the rolling 6-month post
+count — rising line means the stock's thread is heating up. Color = share of that
+month's analyzed posts calling the stock undervalued:
+<span style="color:#d1d5db">■ no data</span>
+<span style="color:#64748b">■ 0%</span>
+<span style="color:#3d8b6a">■ 50%</span>
+<span style="color:#16a34a">■ 100%</span>.
+Sorted by the latest trend, hottest first.</p>
+
+{% if rows %}
+<table>
+  <tr><th>Ticker</th><th>Activity derivative (3y)</th><th>Trend</th><th>Posts (6m)</th><th>Undervalued (6m)</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td><a href="/stocks/{{ r.ticker }}"><span class="badge">{{ r.ticker }}</span></a></td>
+    <td>
+      <svg width="{{ r.w }}" height="{{ r.h }}" style="display:block">
+        {% if r.zero_y is not none %}
+        <line x1="0" y1="{{ r.zero_y }}" x2="{{ r.w }}" y2="{{ r.zero_y }}"
+              stroke="#e5e7eb" stroke-width="1" stroke-dasharray="3,3"/>
+        {% endif %}
+        {% for x1, y1, x2, y2, color in r.segments %}
+        <line x1="{{ x1 }}" y1="{{ y1 }}" x2="{{ x2 }}" y2="{{ y2 }}"
+              stroke="{{ color }}" stroke-width="2" stroke-linecap="round"/>
+        {% endfor %}
+      </svg>
+    </td>
+    <td>{% if r.trend > 0 %}📈 +{{ r.trend }}{% elif r.trend < 0 %}📉 {{ r.trend }}{% else %}—{% endif %}</td>
+    <td>{{ r.posts_window }}</td>
+    <td>{% if r.uv_recent is not none %}{{ "%.0f"|format(100 * r.uv_recent) }}%{% else %}<span class="muted">not scored</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>No data yet — sync some topics first.</p>
+{% endif %}
+{% endblock %}

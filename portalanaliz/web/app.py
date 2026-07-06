@@ -218,7 +218,8 @@ def _momentum_rows(session: Session, window: int = 12, span: int = 36,
     preferred = config or (SCORING.prompt, SCORING.filter_model, SCORING.extract_model)
 
     out = []
-    # ~7px per derivative point: short histories draw a short line instead of
+    # ~7px per derivative point: short histories draw a short line (left-padded,
+    # so the most recent month stays flush to the right edge) instead of
     # stretching a few points across the full width. Capped at max_width.
     px_per_point, max_width, height = 7, 240, 44
     for ticker, months in by_ticker.items():
@@ -249,9 +250,10 @@ def _momentum_rows(session: Session, window: int = 12, span: int = 36,
 
         lo, hi = min(deriv), max(deriv)
         spread = (hi - lo) or 1
-        width = min(max_width, px_per_point * max(1, len(deriv) - 1))
-        step = width / max(1, len(deriv) - 1)
-        pts = [(round(i * step, 1),
+        line_w = min(max_width, px_per_point * max(1, len(deriv) - 1))
+        x0 = max_width - line_w  # left pad; recent month flush to the right
+        step = line_w / max(1, len(deriv) - 1)
+        pts = [(round(x0 + i * step, 1),
                 round(height - 4 - (d - lo) / spread * (height - 8), 1))
                for i, d in enumerate(deriv)]
         segments = [
@@ -268,7 +270,7 @@ def _momentum_rows(session: Session, window: int = 12, span: int = 36,
             "trend": round(sum(deriv[-3:]) / min(3, len(deriv)), 1),
             "posts_window": rolling[-1],
             "uv_recent": (recent_uv / recent_scored) if recent_scored else None,
-            "w": width, "h": height,
+            "w": max_width, "x0": x0, "h": height,
         })
     out.sort(key=lambda r: r["trend"], reverse=True)
     return out

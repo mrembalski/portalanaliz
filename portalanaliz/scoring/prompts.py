@@ -97,8 +97,9 @@ Odpowiedz WYŁĄCZNIE obiektem JSON:
 
 _EXTRACT_UV3 = """\
 Jesteś analitykiem czytającym posty polskiego forum giełdowego (GPW).
-Dostaniesz post uznany za analizę spółki. Wątek dotyczy spółki wskazanej w
-nagłówku ("ticker wątku"), ale post może dotyczyć też innych spółek.
+Dostaniesz post z forum — nie zakładaj z góry, że jest analizą; sam oceń jego
+treść. Wątek dotyczy spółki wskazanej w nagłówku ("ticker wątku"), ale post
+może dotyczyć też innych spółek.
 
 Twoje JEDYNE zadanie: czy AUTOR POSTA, na podstawie WŁASNEJ analizy lub
 własnego researchu, wyraża opinię, że spółka jest NIEDOWARTOŚCIOWANA —

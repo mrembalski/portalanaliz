@@ -1,20 +1,22 @@
 # Custom prompt sets
 
 Drop `<name>.prompt` files here and select them with `--prompt <name>` or
-`SCORING_PROMPT=<name>` — no code changes needed. Built-in sets (`uv1`, `uv2`, `uv3`)
-live in `portalanaliz/scoring/prompts.py`; files here may NOT shadow them.
+`SCORING_PROMPT=<name>` — no code changes needed. The built-in set (`uv3`)
+lives in `portalanaliz/scoring/prompts.py`; files here may NOT shadow it.
 
-Format — two required sections, plain text (Polish recommended, the forum is
-Polish):
+Format — one required `[scoring]` section, plain text (Polish recommended, the
+forum is Polish). Write only the CRITERIA (the yes/no question and what counts
+/ doesn't count); the batch framing and the JSON-array output contract are
+added automatically, so don't restate the output format.
 
 ```
-[filter]
-...system prompt for the chit-chat gate; must ask for {"analysis": true/false}...
-
-[extract]
-...system prompt for the undervaluation call; must ask for
-{"undervalued": true|false, "tickers": [...], "reason": "..."}...
+[scoring]
+...czy autor stawia tezę, że spółka jest niedowartościowana? Sygnały: ...
+Odpowiedz 0, gdy: ...
 ```
+
+(The legacy `[extract]` section name is still accepted; a `[filter]` section,
+if present, is ignored — there is no separate relevance-filter stage anymore.)
 
 The file name is stored as `post_scores.prompt_version`. Once a file has
 scored rows, treat it as immutable — copy to a new name to iterate, otherwise

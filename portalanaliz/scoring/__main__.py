@@ -7,19 +7,19 @@ Usage:
     python -m portalanaliz.scoring prompts              # list available prompt sets
     python -m portalanaliz.scoring all    [--limit N]   # score then rollup
 
-Config comes from .env (SCORING_FILTER_MODEL, SCORING_EXTRACT_MODEL,
-SCORING_PROMPT, FOCUS_TICKERS) and can be overridden per run:
+Config comes from .env (SCORING_MODEL, SCORING_PROMPT, FOCUS_TICKERS) and can
+be overridden per run:
 
-    --filter-model local:gemma3:4b   --extract-model local:qwen3.6:27b
-    --prompt uv2                     --tickers SNT,VOT   (empty string = all)
+    --model local:qwen3.6:27b
+    --prompt uv3                     --tickers SNT,VOT   (empty string = all)
     --workers 5                      # concurrent LLM workers (default 1)
 
-A config is (prompt, filter model, extract model); changing any of them scores
-posts fresh under the new config while keeping old rows for comparison.
-Reruns within a config are explicit:
+A config is (prompt, model); changing either scores posts fresh under the new
+config while keeping old rows for comparison. Reruns within a config are
+explicit:
 
     --rerun error            # drop + rescore this config's error rows
-    --rerun chit_chat,scored # drop + rescore those statuses
+    --rerun scored           # drop + rescore those statuses
     --rerun all              # full fresh pass for this config
     (--rerun respects --tickers/FOCUS_TICKERS; other configs never touched)
 """
@@ -53,14 +53,16 @@ def print_stats(session, settings: ScoringSettings) -> None:
         .group_by(PostScore.prompt_version, PostScore.filter_model,
                   PostScore.extract_model)
     ).all()
-    active = (settings.prompt, settings.filter_model, settings.extract_model)
+    active = (settings.prompt, "", settings.model)
     print(f"posts in archive : {total_posts}")
-    print(f"active config    : prompt={active[0]} filter={active[1]} extract={active[2]}")
+    print(f"active config    : prompt={active[0]} model={settings.model}")
     if settings.tickers:
         print(f"focus tickers    : {', '.join(settings.tickers)}")
     for version, fmodel, emodel, n, cost, inp, out in configs:
         mark = " (active)" if (version, fmodel, emodel) == active else ""
-        print(f"\n[{version} | {fmodel} | {emodel}]{mark}")
+        # New (filterless) rows have fmodel=""; older two-stage rows show it.
+        label = f"{version} | {emodel}" + (f" | filter={fmodel}" if fmodel else "")
+        print(f"\n[{label}]{mark}")
         statuses = session.execute(
             select(PostScore.status, func.count(PostScore.id))
             .where(PostScore.prompt_version == version,
@@ -90,8 +92,7 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=1,
                         help="concurrent LLM workers (each its own DB session); "
                              "default 1 = sequential")
-    parser.add_argument("--filter-model", help="override SCORING_FILTER_MODEL")
-    parser.add_argument("--extract-model", help="override SCORING_EXTRACT_MODEL")
+    parser.add_argument("--model", help="override SCORING_MODEL")
     parser.add_argument("--prompt", help="override SCORING_PROMPT (named set in prompts.py)")
     parser.add_argument("--tickers",
                         help='override FOCUS_TICKERS, e.g. "SNT,VOT"; "" = all')
@@ -110,10 +111,8 @@ def main() -> None:
     session = get_session()
     settings = load_scoring_settings()
     overrides = {}
-    if args.filter_model:
-        overrides["filter_model"] = args.filter_model
-    if args.extract_model:
-        overrides["extract_model"] = args.extract_model
+    if args.model:
+        overrides["model"] = args.model
     if args.prompt:
         overrides["prompt"] = args.prompt
     if args.tickers is not None:
@@ -129,8 +128,8 @@ def main() -> None:
         from portalanaliz.core.models import Post as P, Topic as T
         q = delete(PostScore).where(
             PostScore.prompt_version == settings.prompt,
-            PostScore.filter_model == settings.filter_model,
-            PostScore.extract_model == settings.extract_model)
+            PostScore.filter_model == "",
+            PostScore.extract_model == settings.model)
         if rerun != "all":
             q = q.where(PostScore.status.in_(
                 [s.strip() for s in rerun.split(",") if s.strip()]))
@@ -149,8 +148,8 @@ def main() -> None:
             print(f"{name:<16} {origin}{mark}")
 
     if args.command in ("score", "all"):
-        log.info("config: prompt=%s filter=%s extract=%s tickers=%s workers=%d",
-                 settings.prompt, settings.filter_model, settings.extract_model,
+        log.info("config: prompt=%s model=%s tickers=%s workers=%d",
+                 settings.prompt, settings.model,
                  ",".join(settings.tickers) or "(all)", args.workers)
         stats = score_posts(session, settings, limit=args.limit, workers=args.workers)
         log.info("run done: %s", stats)

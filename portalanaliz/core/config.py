@@ -34,12 +34,15 @@ class ScoringSettings:
     - anthropic — Anthropic API (needs ANTHROPIC_API_KEY)
     - local    — any OpenAI-compatible server (Ollama, LM Studio, vLLM)
                  at LOCAL_LLM_BASE_URL
+
+    Scoring is a single LLM call per batch of posts (no separate relevance
+    filter). `model` is stored as post_scores.extract_model; the old
+    filter_model column is left empty on new rows (see scoring/CLAUDE.md).
     """
 
-    filter_model: str = "local:qwen3.6:27b"
-    extract_model: str = "local:qwen3.6:27b"
+    model: str = "local:qwen3.6:27b"
     # Named prompt set from portalanaliz/scoring/prompts.py:PROMPTS.
-    prompt: str = "uv1"
+    prompt: str = "uv3"
     # Same semantics as Settings.focus_tickers; shares the FOCUS_TICKERS var.
     tickers: tuple[str, ...] = ()
     anthropic_api_key: str = ""
@@ -49,9 +52,13 @@ class ScoringSettings:
 
 def load_scoring_settings() -> ScoringSettings:
     load_dotenv()
+    # SCORING_MODEL is the current name; fall back to the old
+    # SCORING_EXTRACT_MODEL so existing .env files keep working.
+    model = (os.environ.get("SCORING_MODEL")
+             or os.environ.get("SCORING_EXTRACT_MODEL")
+             or ScoringSettings.model)
     return ScoringSettings(
-        filter_model=os.environ.get("SCORING_FILTER_MODEL", ScoringSettings.filter_model),
-        extract_model=os.environ.get("SCORING_EXTRACT_MODEL", ScoringSettings.extract_model),
+        model=model,
         prompt=os.environ.get("SCORING_PROMPT", ScoringSettings.prompt),
         tickers=_parse_tickers(os.environ.get("FOCUS_TICKERS", "")),
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),

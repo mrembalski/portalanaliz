@@ -27,9 +27,10 @@ SCORING = load_scoring_settings()
 
 
 def _scoped_scores():
+    # Filterless pipeline: new rows store filter_model="" + extract_model=model.
     return (PostScore.prompt_version == SCORING.prompt,
-            PostScore.filter_model == SCORING.filter_model,
-            PostScore.extract_model == SCORING.extract_model)
+            PostScore.filter_model == "",
+            PostScore.extract_model == SCORING.model)
 
 app = FastAPI(title="PortalAnaliz Archive")
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
@@ -157,7 +158,7 @@ def _scoring_configs(session: Session) -> list[dict]:
                   PostScore.extract_model)
         .order_by(func.count(PostScore.id).desc())
     ).all()
-    active = (SCORING.prompt, SCORING.filter_model, SCORING.extract_model)
+    active = (SCORING.prompt, "", SCORING.model)
     out = []
     for pv, fm, em, n in rows:
         out.append({
@@ -215,7 +216,7 @@ def _momentum_rows(session: Session, window: int = 12, span: int = 36,
         bucket[0] += 1
         if uv and ticker in (json.loads(tj) if tj else []):
             bucket[1] += 1
-    preferred = config or (SCORING.prompt, SCORING.filter_model, SCORING.extract_model)
+    preferred = config or (SCORING.prompt, "", SCORING.model)
 
     out = []
     # ~7px per derivative point: short histories draw a short line (left-padded,
@@ -348,7 +349,7 @@ def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
                   PostScore.extract_model)
         .order_by(func.count(PostScore.id).desc())
     ).all()
-    active = (SCORING.prompt, SCORING.filter_model, SCORING.extract_model)
+    active = (SCORING.prompt, "", SCORING.model)
     if not history and not best and not topics_for_ticker:
         raise HTTPException(404)
     return templates.TemplateResponse(request, "stock.html", {

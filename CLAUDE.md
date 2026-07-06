@@ -9,7 +9,7 @@ potentially undervalued stocks.
 - `portalanaliz/core/` — SQLAlchemy models, SQLite setup (incl. FTS5), config from `.env`
 - `portalanaliz/scraper/` — Tapatalk client, rate limiter, resumable sync CLI, media downloader
 - `portalanaliz/web/` — FastAPI + Jinja2 UI (dashboard, browser, search, authors)
-- `portalanaliz/scoring/` — LLM pipeline for binary per-post undervaluation signals (prefilter → relevance → undervalued 0/1 → per-ticker signal counts), provider-agnostic (Anthropic or local OpenAI-compatible)
+- `portalanaliz/scoring/` — LLM pipeline for binary per-post undervaluation signals (free prefilter → one batched undervalued 0/1 call, 5 posts/call → per-ticker signal counts), provider-agnostic (Anthropic or local OpenAI-compatible)
 - `data/` — gitignored: `portalanaliz.db` (SQLite) and `media/` (sha256-named files)
 
 ## Commands
@@ -31,8 +31,8 @@ Sync subcommands: `forums | topics | posts | media | all`. Forum 3 = GPW stocks 
 
 `.env` (never commit): `LOGIN`, `PASSWORD` — forum credentials. Optional:
 `TAPATALK_URL`, `MIN_REQUEST_INTERVAL`, `REQUEST_TIMEOUT`. Scoring:
-`ANTHROPIC_API_KEY`, `SCORING_FILTER_MODEL` / `SCORING_EXTRACT_MODEL`
-(`anthropic:<model>` or `local:<model>`), `SCORING_PROMPT` (built-in set in
+`ANTHROPIC_API_KEY`, `SCORING_MODEL` (`anthropic:<model>` or `local:<model>`;
+single model — no separate filter stage), `SCORING_PROMPT` (built-in set in
 `scoring/prompts.py` or a `prompts/<name>.prompt` file), `LOCAL_LLM_BASE_URL`
 (any OpenAI-compatible server; Ollama default).
 `FOCUS_TICKERS` (e.g. `SNT,VOT`) — global limiter: post sync and scoring only

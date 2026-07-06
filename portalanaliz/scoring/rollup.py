@@ -29,8 +29,8 @@ def compute_stock_scores(session: Session, settings: ScoringSettings,
     """Rollup over the ACTIVE config's scored rows only (stock_scores rows are
     overwritten per (ticker, date) — the table reflects the last config rolled up)."""
     scoped = (PostScore.prompt_version == settings.prompt,
-              PostScore.filter_model == settings.filter_model,
-              PostScore.extract_model == settings.extract_model,
+              PostScore.filter_model == "",
+              PostScore.extract_model == settings.model,
               PostScore.status == "scored")
     if as_of is None:
         # Anchor to the newest scored post, not today — during backfill the

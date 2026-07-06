@@ -208,3 +208,33 @@ def parse_json_response(text: str) -> dict:
     if not m:
         raise LLMError(f"no JSON object in response: {text[:200]!r}")
     return json.loads(m.group(0))
+
+
+def _coerce_binary(value) -> bool:
+    """0/1, "0"/"1", true/false, "true"/"false" -> bool (tolerant of what
+    small local models emit for the batch scoring array)."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    s = str(value).strip().lower()
+    if s in ("1", "true", "yes", "tak"):
+        return True
+    if s in ("0", "false", "no", "nie", ""):
+        return False
+    raise LLMError(f"not a 0/1 value: {value!r}")
+
+
+def parse_scores(text: str, expected: int) -> list[bool]:
+    """Parse a batch response {"scores": [0, 1, ...]} into `expected` bools.
+
+    Raises LLMError if the array is missing or its length doesn't match the
+    batch size — so a malformed batch becomes error rows, not silent misalign-
+    ment of signals to posts."""
+    data = parse_json_response(text)
+    scores = data.get("scores")
+    if not isinstance(scores, list):
+        raise LLMError(f"response has no 'scores' array: {str(data)[:200]!r}")
+    if len(scores) != expected:
+        raise LLMError(f"expected {expected} scores, got {len(scores)}: {scores!r}")
+    return [_coerce_binary(s) for s in scores]

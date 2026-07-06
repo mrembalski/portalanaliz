@@ -2,13 +2,15 @@
 
 PROMPTS is a registry of named, immutable prompt sets. Pick one via
 SCORING_PROMPT in .env or `--prompt <name>` on the CLI; the name is stored as
-post_scores.prompt_version. To experiment, ADD a new entry (e.g. "uv2",
-"uv1-strict") — never edit an existing one that has scored rows, or stored
+post_scores.prompt_version. To experiment, ADD a new entry (e.g. "uv4",
+"uv3-strict") — never edit an existing one that has scored rows, or stored
 results stop meaning what they meant.
 
-Current goal: binary undervaluation signal per post (not company scoring) —
-stage 1 gates out chit-chat, stage 2 answers "does the author argue the stock
-is undervalued?" with 0/1 + tickers + short reason.
+Current goal: a single binary undervaluation signal per post. There is no
+separate relevance/chit-chat filter stage anymore — chit-chat simply scores 0.
+Posts are scored in BATCHES: the model receives several numbered posts at once
+and returns one 0/1 per post, so a set is a scoring `system` prompt plus a
+shared batch framing that pins the I/O format.
 """
 
 from __future__ import annotations
@@ -19,139 +21,71 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class PromptSet:
-    filter_system: str
-    extract_system: str
+    # System prompt for the batched undervaluation call. Combined with the
+    # shared batch framing (intro + JSON-array output contract) by _compose().
+    system: str
 
 
-_FILTER_UV1 = """\
-Jesteś klasyfikatorem postów z polskiego forum giełdowego (GPW, portalanaliz.pl).
+# ── Shared batch framing ──────────────────────────────────────────────────
+# Every set answers the same question shape over a batch of posts and returns
+# the same JSON array; only the middle "criteria" differs between sets.
 
-Oceń, czy post zawiera FAKTYCZNĄ ANALIZĘ spółki lub akcji — czyli co najmniej jedno z:
-- omówienie wyników finansowych, wyceny, wskaźników (C/Z, EV/EBITDA, marże...),
-- tezę inwestycyjną z uzasadnieniem (dlaczego kupować/sprzedawać/trzymać),
-- analizę biznesu, kontraktów, perspektyw, katalizatorów,
-- cenę docelową lub szacunek wartości z argumentacją.
+_BATCH_INTRO = """\
+Jesteś analitykiem czytającym posty z polskiego forum giełdowego (GPW, portalanaliz.pl).
+Dostaniesz PARTIĘ ponumerowanych postów (POST 1, POST 2, ...). Każdy pochodzi z
+wątku o danej spółce (ticker wątku podany w nagłówku posta), ale może dotyczyć
+też innych spółek.
 
-NIE jest analizą: small talk, emocje o kursie ("ale spadło", "to the moon"),
-pytania bez treści, same linki/newsy bez komentarza, jednozdaniowe opinie,
-czysta analiza techniczna bez odniesienia do spółki ("wsparcie na 12 zł").
+Dla KAŻDEGO posta osobno odpowiedz na jedno pytanie:"""
 
-Odpowiedz WYŁĄCZNIE obiektem JSON: {"analysis": true} lub {"analysis": false}"""
+_BATCH_OUTPUT = """\
+Odpowiedz WYŁĄCZNIE obiektem JSON z jedną tablicą "scores": po jednej wartości
+0 lub 1 na każdy post, w tej samej kolejności co posty (1 = tak, 0 = nie).
+Liczba wartości MUSI być równa liczbie postów. Nie dodawaj żadnego innego tekstu.
 
-_EXTRACT_UV1 = """\
-Jesteś analitykiem czytającym posty polskiego forum giełdowego (GPW).
-Dostaniesz post uznany za analizę spółki. Wątek dotyczy spółki wskazanej w
-nagłówku ("ticker wątku"), ale post może dotyczyć też innych spółek.
-
-Twoje JEDYNE zadanie: czy autor stawia tezę, że spółka jest NIEDOWARTOŚCIOWANA —
-że rynek wycenia ją poniżej wartości? Sygnały: niska wycena wskaźnikowa na tle
-wyników/branży (C/Z, EV/EBITDA...), cena poniżej oszacowanej wartości
-wewnętrznej, kurs docelowy/wycena powyżej obecnej ceny z argumentacją,
-"rynek nie dostrzega", aktywa/gotówka warte więcej niż kapitalizacja.
-
-NIE jest sygnałem niedowartościowania: sam optymizm lub oczekiwanie wzrostu bez
-odniesienia do wyceny, analiza techniczna, nadzieja na kontrakt/produkt bez
-zestawienia z obecną wyceną, relacjonowanie wyników bez tezy o wycenie.
-
-Odpowiedz WYŁĄCZNIE obiektem JSON:
-{
-  "undervalued": true|false,
-  "tickers": ["SNT"],
-  "reason": "jedno zdanie po polsku: dlaczego tak/nie, z liczbami jeśli są"
-}
-
-"tickers": spółki, których dotyczy sygnał niedowartościowania (tickery GPW);
-pusta lista gdy "undervalued" jest false. Nie dodawaj tekstu poza JSON."""
+Przykład dla 5 postów: {"scores": [0, 1, 0, 0, 1]}"""
 
 
-_EXTRACT_UV2 = """\
-Jesteś analitykiem czytającym posty polskiego forum giełdowego (GPW).
-Dostaniesz post uznany za analizę spółki. Wątek dotyczy spółki wskazanej w
-nagłówku ("ticker wątku"), ale post może dotyczyć też innych spółek.
-
-Twoje JEDYNE zadanie: czy autor stawia KONKRETNĄ tezę o niedowartościowaniu —
-tj. wprost porównuje obecną wycenę rynkową z wartością, którą sam szacuje lub
-wywodzi. Wymagany jest LICZBOWY argument wyceny, co najmniej jeden z:
-- wskaźnik wyceny (C/Z, C/WK, EV/EBITDA...) zestawiony z wynikami, branżą
-  lub historią i oceniony jako niski,
-- oszacowana wartość/kurs docelowy powyżej obecnej ceny (z liczbą),
-- aktywa/gotówka/segmenty wycenione i porównane z kapitalizacją.
-
-NIE licz jako sygnału (odpowiedz false):
-- optymizm, "będzie rosło", dobre perspektywy — bez porównania z wyceną,
-- sama relacja wyników (nawet świetnych) bez tezy "rynek tego nie wycenia",
-- analiza techniczna, przeczucia, sentyment,
-- powtórzenie cudzej rekomendacji bez własnego odniesienia do wyceny,
-- słowo "tanio"/"niedowartościowana" rzucone bez żadnej liczby.
-
-Odpowiedz WYŁĄCZNIE obiektem JSON:
-{
-  "undervalued": true|false,
-  "tickers": ["SNT"],
-  "reason": "jedno zdanie po polsku: jaki liczbowy argument padł (lub czego zabrakło)"
-}
-
-"tickers": spółki, których dotyczy sygnał (tickery GPW); pusta lista gdy
-"undervalued" jest false. Nie dodawaj tekstu poza JSON."""
+def _compose(criteria: str) -> str:
+    return f"{_BATCH_INTRO}\n\n{criteria.strip()}\n\n{_BATCH_OUTPUT}"
 
 
-_EXTRACT_UV3 = """\
-Jesteś analitykiem czytającym posty polskiego forum giełdowego (GPW).
-Dostaniesz post z forum — nie zakładaj z góry, że jest analizą; sam oceń jego
-treść. Wątek dotyczy spółki wskazanej w nagłówku ("ticker wątku"), ale post
-może dotyczyć też innych spółek.
+# ── Per-set criteria ──────────────────────────────────────────────────────
 
-Twoje JEDYNE zadanie: czy AUTOR POSTA, na podstawie WŁASNEJ analizy lub
-własnego researchu, wyraża opinię, że spółka jest NIEDOWARTOŚCIOWANA —
-że rynek wycenia ją poniżej wartości?
+_CRIT_UV3 = """\
+Czy AUTOR POSTA, na podstawie WŁASNEJ analizy lub własnego researchu, wyraża
+opinię, że spółka jest NIEDOWARTOŚCIOWANA (rynek wycenia ją poniżej wartości)?
+Muszą zajść oba warunki:
+- Warunek 1 — teza o niedowartościowaniu: niska wycena wskaźnikowa na tle
+  wyników/branży (C/Z, EV/EBITDA...), cena poniżej oszacowanej wartości, kurs
+  docelowy/wycena powyżej obecnej ceny, "rynek nie dostrzega", aktywa/gotówka
+  warte więcej niż kapitalizacja.
+- Warunek 2 — teza wynika z WŁASNEJ pracy autora: sam liczy, porównuje,
+  analizuje wyniki/biznes/wskaźniki, opisuje własny research (raporty, kontakt
+  ze spółką, obserwacja branży). Sygnały: własne obliczenia/szacunki, autorskie
+  porównania do konkurencji, wnioski z lektury raportu, "policzyłem",
+  "z moich szacunków", "moim zdaniem po wynikach...".
 
-Warunek 1 — teza o niedowartościowaniu, np.: niska wycena wskaźnikowa na tle
-wyników/branży (C/Z, EV/EBITDA...), cena poniżej oszacowanej wartości,
-kurs docelowy/wycena powyżej obecnej ceny, "rynek nie dostrzega",
-aktywa/gotówka warte więcej niż kapitalizacja.
-
-Warunek 2 — teza wynika z WŁASNEJ pracy autora: autor sam liczy, porównuje,
-analizuje wyniki/biznes/wskaźniki, opisuje własny research (raporty, kontakt
-ze spółką, obserwacja branży) i wyciąga z tego wniosek. Sygnały własnej
-analizy: własne obliczenia lub szacunki, autorskie porównania do konkurencji,
-wnioski z lektury raportu, "policzyłem", "z moich szacunków", "moim zdaniem
-po wynikach...".
-
-Odpowiedz false, gdy (którekolwiek):
-- autor tylko POWTARZA cudzą opinię: rekomendację biura maklerskiego, wycenę
-  z raportu analitycznego, opinię innego forumowicza, artykuł — bez własnego
-  wkładu analitycznego,
-- sam optymizm lub oczekiwanie wzrostu bez odniesienia do wyceny,
-- analiza techniczna, sentyment, przeczucia,
-- słowo "tanio"/"niedowartościowana" rzucone bez uzasadnienia,
-- relacja wyników bez wniosku autora o wycenie.
-
-Odpowiedz WYŁĄCZNIE obiektem JSON:
-{
-  "undervalued": true|false,
-  "tickers": ["SNT"],
-  "reason": "jedno zdanie po polsku: jaka własna analiza autora stoi za tezą (lub czego zabrakło)"
-}
-
-"tickers": spółki, których dotyczy sygnał niedowartościowania (tickery GPW);
-pusta lista gdy "undervalued" jest false. Nie dodawaj tekstu poza JSON."""
+Odpowiedz 0, gdy (którekolwiek): autor tylko POWTARZA cudzą opinię (rekomendację
+biura maklerskiego, wycenę z raportu, opinię innego forumowicza, artykuł) bez
+własnego wkładu; sam optymizm bez odniesienia do wyceny; analiza techniczna,
+sentyment, przeczucia; słowo "tanio"/"niedowartościowana" bez uzasadnienia;
+relacja wyników bez własnego wniosku autora o wycenie."""
 
 
 PROMPTS: dict[str, PromptSet] = {
-    "uv1": PromptSet(filter_system=_FILTER_UV1, extract_system=_EXTRACT_UV1),
-    # Stricter: flags only posts with an explicit, numeric valuation argument.
-    "uv2": PromptSet(filter_system=_FILTER_UV1, extract_system=_EXTRACT_UV2),
     # Flags only undervaluation theses grounded in the author's OWN analysis
     # or research — repeating someone else's recommendation doesn't count.
-    "uv3": PromptSet(filter_system=_FILTER_UV1, extract_system=_EXTRACT_UV3),
+    "uv3": PromptSet(system=_compose(_CRIT_UV3)),
 }
 
-DEFAULT_PROMPT = "uv1"
+DEFAULT_PROMPT = "uv3"
 
-# User-defined prompt sets live here as <name>.prompt files with [filter] and
-# [extract] sections — no code edit needed. The FILE NAME is the stored
-# prompt_version, so treat a file with scored rows as immutable: copy to a new
-# name to iterate.
+# User-defined prompt sets live here as <name>.prompt files with a single
+# [scoring] section (legacy [extract] is also accepted) — no code edit needed.
+# The FILE NAME is the stored prompt_version, so treat a file with scored rows
+# as immutable: copy to a new name to iterate. The batch I/O framing is added
+# automatically, so the file only needs the criteria (the question).
 PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 
 
@@ -160,18 +94,15 @@ def _load_prompt_file(path: Path) -> PromptSet:
     current: str | None = None
     for line in path.read_text(encoding="utf-8").splitlines():
         marker = line.strip().lower()
-        if marker in ("[filter]", "[extract]"):
+        if marker in ("[scoring]", "[extract]", "[filter]"):
             current = marker[1:-1]
             sections[current] = []
         elif current is not None:
             sections[current].append(line)
-    missing = {"filter", "extract"} - set(sections)
-    if missing:
-        raise KeyError(f"{path} is missing section(s): {', '.join(sorted(missing))}")
-    return PromptSet(
-        filter_system="\n".join(sections["filter"]).strip(),
-        extract_system="\n".join(sections["extract"]).strip(),
-    )
+    body = sections.get("scoring") or sections.get("extract")
+    if body is None:
+        raise KeyError(f"{path} is missing a [scoring] section")
+    return PromptSet(system=_compose("\n".join(body).strip()))
 
 
 def available_prompts() -> dict[str, str]:
@@ -196,15 +127,20 @@ def get_prompts(name: str) -> PromptSet:
     )
 
 
-def extraction_user(topic_title: str, ticker_hint: str | None, post_time: str,
-                    text: str, max_chars: int = 8000) -> str:
-    return (
-        f"Wątek: {topic_title}\n"
-        f"Ticker wątku: {ticker_hint or 'nieznany'}\n"
-        f"Data posta: {post_time}\n\n"
-        f"Treść posta:\n{text[:max_chars]}"
-    )
+def batch_user(items: list[tuple[str, str | None, str, str]],
+               max_chars: int = 6000) -> str:
+    """Render a batch of posts as one numbered user message.
 
-
-def filter_user(topic_title: str, text: str, max_chars: int = 4000) -> str:
-    return f"Wątek: {topic_title}\n\nTreść posta:\n{text[:max_chars]}"
+    `items` is a list of (topic_title, ticker_hint, post_time, text) in the
+    order the model must score them; POST i in the prompt == items[i-1]."""
+    blocks = []
+    for i, (title, ticker, post_time, text) in enumerate(items, 1):
+        blocks.append(
+            f"### POST {i}\n"
+            f"Wątek: {title}\n"
+            f"Ticker wątku: {ticker or 'nieznany'}\n"
+            f"Data posta: {post_time}\n"
+            f"Treść:\n{text[:max_chars]}"
+        )
+    return (f"Oceń poniższe {len(items)} postów. Zwróć tablicę "
+            f"{len(items)} wartości 0/1.\n\n" + "\n\n".join(blocks))

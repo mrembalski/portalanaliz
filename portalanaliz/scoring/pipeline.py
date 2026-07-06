@@ -75,7 +75,11 @@ def unscored_posts(session: Session, settings: ScoringSettings,
     if settings.tickers:
         topic_ids = select(Topic.id).where(Topic.ticker_hint.in_(settings.tickers))
         q = q.where(Post.topic_id.in_(topic_ids))
-    return list(session.scalars(q.order_by(Post.post_time).limit(batch)))
+    # Newest posts first: the momentum/dashboard views only surface the last
+    # few years, so scoring recent posts first makes their undervaluation
+    # colors show up right away instead of after the whole backlog is scored.
+    # (SQLite sorts NULL post_time last under DESC, so dated posts lead.)
+    return list(session.scalars(q.order_by(Post.post_time.desc()).limit(batch)))
 
 
 def score_posts(session: Session, settings: ScoringSettings,

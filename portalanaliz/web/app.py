@@ -158,7 +158,7 @@ def _resolve_config(key: str | None) -> tuple[str, str, str] | None:
     return (parts[0], parts[1], parts[2]) if len(parts) == 3 else None
 
 
-def _momentum_rows(session: Session, window: int = 12, span: int = 36,
+def _momentum_rows(session: Session, window: int = 12, span: int = 60,
                    min_posts: int = 10,
                    config: tuple[str, str, str] | None = None) -> list[dict]:
     """Per ticker: derivative of the rolling {window}-month post count, as

@@ -14,7 +14,8 @@ rollup counting undervalued posts vs posts analyzed into `stock_scores`.
   changing prompt or model starts a fresh comparable pass; old rows stay.
   Rollup and web UI only read the active config's rows.
 - Prompts: built-ins in `prompts.py:PROMPTS` (`uv1`; `uv2` = stricter, requires
-  a numeric valuation argument) plus user files in `prompts/<name>.prompt`
+  a numeric valuation argument; `uv3` = requires the thesis to come from the
+  author's OWN analysis/research, not a repeated recommendation) plus user files in `prompts/<name>.prompt`
   ([filter] + [extract] sections; see `prompts/README.md`). Selected via
   SCORING_PROMPT / `--prompt`; list with the `prompts` subcommand. To
   experiment, ADD a new set/file — never edit one that has scored rows.

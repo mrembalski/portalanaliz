@@ -1,7 +1,7 @@
 # Custom prompt sets
 
 Drop `<name>.prompt` files here and select them with `--prompt <name>` or
-`SCORING_PROMPT=<name>` — no code changes needed. Built-in sets (`uv1`, `uv2`)
+`SCORING_PROMPT=<name>` — no code changes needed. Built-in sets (`uv1`, `uv2`, `uv3`)
 live in `portalanaliz/scoring/prompts.py`; files here may NOT shadow them.
 
 Format — two required sections, plain text (Polish recommended, the forum is

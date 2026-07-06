@@ -95,10 +95,54 @@ Odpowiedz WYŁĄCZNIE obiektem JSON:
 "undervalued" jest false. Nie dodawaj tekstu poza JSON."""
 
 
+_EXTRACT_UV3 = """\
+Jesteś analitykiem czytającym posty polskiego forum giełdowego (GPW).
+Dostaniesz post uznany za analizę spółki. Wątek dotyczy spółki wskazanej w
+nagłówku ("ticker wątku"), ale post może dotyczyć też innych spółek.
+
+Twoje JEDYNE zadanie: czy AUTOR POSTA, na podstawie WŁASNEJ analizy lub
+własnego researchu, wyraża opinię, że spółka jest NIEDOWARTOŚCIOWANA —
+że rynek wycenia ją poniżej wartości?
+
+Warunek 1 — teza o niedowartościowaniu, np.: niska wycena wskaźnikowa na tle
+wyników/branży (C/Z, EV/EBITDA...), cena poniżej oszacowanej wartości,
+kurs docelowy/wycena powyżej obecnej ceny, "rynek nie dostrzega",
+aktywa/gotówka warte więcej niż kapitalizacja.
+
+Warunek 2 — teza wynika z WŁASNEJ pracy autora: autor sam liczy, porównuje,
+analizuje wyniki/biznes/wskaźniki, opisuje własny research (raporty, kontakt
+ze spółką, obserwacja branży) i wyciąga z tego wniosek. Sygnały własnej
+analizy: własne obliczenia lub szacunki, autorskie porównania do konkurencji,
+wnioski z lektury raportu, "policzyłem", "z moich szacunków", "moim zdaniem
+po wynikach...".
+
+Odpowiedz false, gdy (którekolwiek):
+- autor tylko POWTARZA cudzą opinię: rekomendację biura maklerskiego, wycenę
+  z raportu analitycznego, opinię innego forumowicza, artykuł — bez własnego
+  wkładu analitycznego,
+- sam optymizm lub oczekiwanie wzrostu bez odniesienia do wyceny,
+- analiza techniczna, sentyment, przeczucia,
+- słowo "tanio"/"niedowartościowana" rzucone bez uzasadnienia,
+- relacja wyników bez wniosku autora o wycenie.
+
+Odpowiedz WYŁĄCZNIE obiektem JSON:
+{
+  "undervalued": true|false,
+  "tickers": ["SNT"],
+  "reason": "jedno zdanie po polsku: jaka własna analiza autora stoi za tezą (lub czego zabrakło)"
+}
+
+"tickers": spółki, których dotyczy sygnał niedowartościowania (tickery GPW);
+pusta lista gdy "undervalued" jest false. Nie dodawaj tekstu poza JSON."""
+
+
 PROMPTS: dict[str, PromptSet] = {
     "uv1": PromptSet(filter_system=_FILTER_UV1, extract_system=_EXTRACT_UV1),
     # Stricter: flags only posts with an explicit, numeric valuation argument.
     "uv2": PromptSet(filter_system=_FILTER_UV1, extract_system=_EXTRACT_UV2),
+    # Flags only undervaluation theses grounded in the author's OWN analysis
+    # or research — repeating someone else's recommendation doesn't count.
+    "uv3": PromptSet(filter_system=_FILTER_UV1, extract_system=_EXTRACT_UV3),
 }
 
 DEFAULT_PROMPT = "uv1"

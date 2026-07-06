@@ -2,7 +2,7 @@
 {% block title %}Momentum{% endblock %}
 {% block content %}
 <h1>Discussion momentum</h1>
-<p class="muted">Line = month-over-month change (derivative) of the rolling 6-month post
+<p class="muted">Line = month-over-month change (derivative) of the rolling 12-month post
 count — rising line means the stock's thread is heating up. Color = share of that
 month's analyzed posts calling the stock undervalued:
 <span style="color:#d1d5db">■ no data</span>
@@ -26,7 +26,7 @@ Sorted by the latest trend, hottest first.</p>
 
 {% if rows %}
 <table>
-  <tr><th>Ticker</th><th>Activity derivative (3y)</th><th>Trend</th><th>Posts (6m)</th><th>Undervalued (6m)</th></tr>
+  <tr><th>Ticker</th><th>Activity derivative (3y)</th><th>Trend</th><th>Posts (12m)</th><th>Undervalued (12m)</th></tr>
   {% for r in rows %}
   <tr>
     <td><a href="/stocks/{{ r.ticker }}"><span class="badge">{{ r.ticker }}</span></a></td>

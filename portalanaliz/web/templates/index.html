@@ -28,7 +28,7 @@ Scoring: {{ scoring.undervalued }} undervalued / {{ scoring.scored }} analyzed /
 </form>
 {% endif %}
 <table>
-  <tr><th>Ticker</th><th>Activity derivative</th><th>Trend</th><th>Undervalued (6m)</th></tr>
+  <tr><th>Ticker</th><th>Activity derivative</th><th>Trend</th><th>Undervalued (12m)</th></tr>
   {% for r in hot %}
   <tr>
     <td><a href="/stocks/{{ r.ticker }}"><span class="badge">{{ r.ticker }}</span></a></td>

@@ -178,7 +178,7 @@ def _resolve_config(key: str | None) -> tuple[str, str, str] | None:
     return (parts[0], parts[1], parts[2]) if len(parts) == 3 else None
 
 
-def _momentum_rows(session: Session, window: int = 6, span: int = 36,
+def _momentum_rows(session: Session, window: int = 12, span: int = 36,
                    min_posts: int = 10,
                    config: tuple[str, str, str] | None = None) -> list[dict]:
     """Per ticker: derivative of the rolling {window}-month post count, as
@@ -218,7 +218,9 @@ def _momentum_rows(session: Session, window: int = 6, span: int = 36,
     preferred = config or (SCORING.prompt, SCORING.filter_model, SCORING.extract_model)
 
     out = []
-    width, height = 240, 44
+    # ~7px per derivative point: short histories draw a short line instead of
+    # stretching a few points across the full width. Capped at max_width.
+    px_per_point, max_width, height = 7, 240, 44
     for ticker, months in by_ticker.items():
         if sum(months.values()) < min_posts:
             continue
@@ -247,6 +249,7 @@ def _momentum_rows(session: Session, window: int = 6, span: int = 36,
 
         lo, hi = min(deriv), max(deriv)
         spread = (hi - lo) or 1
+        width = min(max_width, px_per_point * max(1, len(deriv) - 1))
         step = width / max(1, len(deriv) - 1)
         pts = [(round(i * step, 1),
                 round(height - 4 - (d - lo) / spread * (height - 8), 1))

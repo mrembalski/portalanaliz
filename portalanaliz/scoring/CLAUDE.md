@@ -25,7 +25,11 @@ rollup counting undervalued posts vs posts analyzed into `stock_scores`.
   `--retry-errors` = `--rerun error`.
 - `FOCUS_TICKERS` (shared with the scraper) narrows scoring to topics with
   those ticker_hints; empty = whole archive. CLI `--tickers` overrides.
-- One commit per post — a killed run loses at most the in-flight post.
+- One commit per post — a killed run loses at most the in-flight post. This
+  holds under `--workers N` too: N concurrent LLM workers, each with its own
+  DB session and clients; the prefilter runs in the main thread and each batch
+  is drained before the next is fetched, so no post is handed out twice.
+  Default `--workers 1` = sequential (unchanged path).
 - `--limit N` counts only posts that reach the LLM; prefilter skips are free
   and unlimited.
 - Provider-agnostic: model specs are `provider:model`. Providers:

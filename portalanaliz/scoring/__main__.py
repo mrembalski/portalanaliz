@@ -12,6 +12,7 @@ SCORING_PROMPT, FOCUS_TICKERS) and can be overridden per run:
 
     --filter-model local:gemma3:4b   --extract-model local:qwen3.6:27b
     --prompt uv2                     --tickers SNT,VOT   (empty string = all)
+    --workers 5                      # concurrent LLM workers (default 1)
 
 A config is (prompt, filter model, extract model); changing any of them scores
 posts fresh under the new config while keeping old rows for comparison.
@@ -86,6 +87,9 @@ def main() -> None:
     parser.add_argument("command", choices=["score", "rollup", "stats", "prompts", "all"])
     parser.add_argument("--limit", type=int, default=None,
                         help="max posts sent to the LLM this run (skips are free)")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="concurrent LLM workers (each its own DB session); "
+                             "default 1 = sequential")
     parser.add_argument("--filter-model", help="override SCORING_FILTER_MODEL")
     parser.add_argument("--extract-model", help="override SCORING_EXTRACT_MODEL")
     parser.add_argument("--prompt", help="override SCORING_PROMPT (named set in prompts.py)")
@@ -145,10 +149,10 @@ def main() -> None:
             print(f"{name:<16} {origin}{mark}")
 
     if args.command in ("score", "all"):
-        log.info("config: prompt=%s filter=%s extract=%s tickers=%s",
+        log.info("config: prompt=%s filter=%s extract=%s tickers=%s workers=%d",
                  settings.prompt, settings.filter_model, settings.extract_model,
-                 ",".join(settings.tickers) or "(all)")
-        stats = score_posts(session, settings, limit=args.limit)
+                 ",".join(settings.tickers) or "(all)", args.workers)
+        stats = score_posts(session, settings, limit=args.limit, workers=args.workers)
         log.info("run done: %s", stats)
     if args.command in ("rollup", "all"):
         compute_stock_scores(session, settings)

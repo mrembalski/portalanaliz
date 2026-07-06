@@ -67,7 +67,8 @@ def _render_posts(session: Session, posts: list[Post]) -> list[dict]:
 
 
 @app.get("/")
-def index(request: Request, session: Session = Depends(db)):
+def index(request: Request, config: str = "", session: Session = Depends(db)):
+    cfg = _resolve_config(config)
     stats = {
         "posts": session.scalar(select(func.count(Post.id))) or 0,
         "topics": session.scalar(select(func.count(Topic.id))) or 0,
@@ -104,11 +105,12 @@ def index(request: Request, session: Session = Depends(db)):
                                .where(*_scoped_scores())) or 0.0,
     }
     top_stocks = _latest_stock_scores(session, limit=10)
-    hot = [r for r in _momentum_rows(session) if r["trend"] > 0][:5]
+    hot = [r for r in _momentum_rows(session, config=cfg) if r["trend"] > 0][:5]
     return templates.TemplateResponse(request, "index.html", {
         "stats": stats, "media": media_by_status,
         "top_topics": top_topics, "recent": recent, "topic_titles": topic_titles,
         "scoring": scoring, "top_stocks": top_stocks, "hot": hot,
+        "configs": _scoring_configs(session), "config_key": config,
     })
 
 
@@ -144,12 +146,45 @@ def _next_month(m: str) -> str:
     return f"{y + mo // 12}-{(mo % 12) + 1:02d}"
 
 
+def _scoring_configs(session: Session) -> list[dict]:
+    """Every scoring config (prompt + models) that has scored rows, most rows
+    first. Each carries a `key` ("prompt|filter|extract") for the UI selector."""
+    rows = session.execute(
+        select(PostScore.prompt_version, PostScore.filter_model,
+               PostScore.extract_model, func.count(PostScore.id).label("n"))
+        .where(PostScore.status == "scored")
+        .group_by(PostScore.prompt_version, PostScore.filter_model,
+                  PostScore.extract_model)
+        .order_by(func.count(PostScore.id).desc())
+    ).all()
+    active = (SCORING.prompt, SCORING.filter_model, SCORING.extract_model)
+    out = []
+    for pv, fm, em, n in rows:
+        out.append({
+            "key": f"{pv}|{fm}|{em}",
+            "prompt": pv, "filter_model": fm, "extract_model": em,
+            "label": f"{pv} · {em}", "scored": n,
+            "is_active": (pv, fm, em) == active,
+        })
+    return out
+
+
+def _resolve_config(key: str | None) -> tuple[str, str, str] | None:
+    """Query-param config key -> (prompt, filter, extract) tuple, or None to
+    let the momentum view fall back to the active/most-scored config."""
+    if not key:
+        return None
+    parts = key.split("|")
+    return (parts[0], parts[1], parts[2]) if len(parts) == 3 else None
+
+
 def _momentum_rows(session: Session, window: int = 6, span: int = 36,
-                   min_posts: int = 10) -> list[dict]:
+                   min_posts: int = 10,
+                   config: tuple[str, str, str] | None = None) -> list[dict]:
     """Per ticker: derivative of the rolling {window}-month post count, as
     sparkline segments whose color encodes the share of that month's scored
-    posts flagging undervaluation (active config preferred, else the config
-    with the most scored rows for the ticker)."""
+    posts flagging undervaluation. Coloring uses `config` when given, else the
+    active config, else the config with the most scored rows for the ticker."""
     counts = session.execute(
         select(Topic.ticker_hint, func.strftime("%Y-%m", Post.post_time).label("m"),
                func.count(Post.id))
@@ -180,7 +215,7 @@ def _momentum_rows(session: Session, window: int = 6, span: int = 36,
         bucket[0] += 1
         if uv and ticker in (json.loads(tj) if tj else []):
             bucket[1] += 1
-    active = (SCORING.prompt, SCORING.filter_model, SCORING.extract_model)
+    preferred = config or (SCORING.prompt, SCORING.filter_model, SCORING.extract_model)
 
     out = []
     width, height = 240, 44
@@ -201,9 +236,13 @@ def _momentum_rows(session: Session, window: int = 6, span: int = 36,
         deriv, d_axis = deriv[-span:], d_axis[-span:]
 
         configs = uv_raw.get(ticker, {})
-        chosen = configs.get(active) or (
-            max(configs.values(), key=lambda c: sum(v[0] for v in c.values()))
-            if configs else {})
+        if config is not None:
+            # Explicit pick: show only that config's judgment (no cross-config fallback).
+            chosen = configs.get(config, {})
+        else:
+            chosen = configs.get(preferred) or (
+                max(configs.values(), key=lambda c: sum(v[0] for v in c.values()))
+                if configs else {})
         uv_pct = {m: (v[1] / v[0] if v[0] else None) for m, v in chosen.items()}
 
         lo, hi = min(deriv), max(deriv)
@@ -233,9 +272,11 @@ def _momentum_rows(session: Session, window: int = 6, span: int = 36,
 
 
 @app.get("/momentum")
-def momentum(request: Request, session: Session = Depends(db)):
+def momentum(request: Request, config: str = "", session: Session = Depends(db)):
+    cfg = _resolve_config(config)
     return templates.TemplateResponse(request, "momentum.html", {
-        "rows": _momentum_rows(session)[:50],
+        "rows": _momentum_rows(session, config=cfg)[:50],
+        "configs": _scoring_configs(session), "config_key": config,
     })
 
 

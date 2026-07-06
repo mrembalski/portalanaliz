@@ -11,6 +11,19 @@ month's analyzed posts calling the stock undervalued:
 <span style="color:#16a34a">■ 100%</span>.
 Sorted by the latest trend, hottest first.</p>
 
+{% if configs %}
+<form method="get" action="/momentum" style="margin:0 0 12px">
+  <label class="muted" style="font-size:13px">Undervaluation colored by
+    <select name="config" onchange="this.form.submit()">
+      <option value="">active config{% if not config_key %} · {{ configs|selectattr('is_active')|map(attribute='label')|first|default('—') }}{% endif %}</option>
+      {% for c in configs %}
+      <option value="{{ c.key }}"{% if c.key == config_key %} selected{% endif %}>{{ c.label }} ({{ c.scored }} scored){% if c.is_active %} · active{% endif %}</option>
+      {% endfor %}
+    </select>
+  </label>
+</form>
+{% endif %}
+
 {% if rows %}
 <table>
   <tr><th>Ticker</th><th>Activity derivative (3y)</th><th>Trend</th><th>Posts (6m)</th><th>Undervalued (6m)</th></tr>

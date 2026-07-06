@@ -14,7 +14,19 @@ Scoring: {{ scoring.undervalued }} undervalued / {{ scoring.scored }} analyzed /
 {{ scoring.processed }} processed (${{ "%.4f"|format(scoring.cost) }} spent)</p>
 
 {% if hot %}
-<h2>Heating up <a class="muted" style="font-size:13px" href="/momentum">(full momentum view →)</a></h2>
+<h2>Heating up <a class="muted" style="font-size:13px" href="/momentum{% if config_key %}?config={{ config_key|urlencode }}{% endif %}">(full momentum view →)</a></h2>
+{% if configs %}
+<form method="get" action="/" style="margin:-4px 0 10px">
+  <label class="muted" style="font-size:13px">Undervaluation colored by
+    <select name="config" onchange="this.form.submit()">
+      <option value="">active config{% if not config_key %} · {{ configs|selectattr('is_active')|map(attribute='label')|first|default('—') }}{% endif %}</option>
+      {% for c in configs %}
+      <option value="{{ c.key }}"{% if c.key == config_key %} selected{% endif %}>{{ c.label }} ({{ c.scored }} scored){% if c.is_active %} · active{% endif %}</option>
+      {% endfor %}
+    </select>
+  </label>
+</form>
+{% endif %}
 <table>
   <tr><th>Ticker</th><th>Activity derivative</th><th>Trend</th><th>Undervalued (6m)</th></tr>
   {% for r in hot %}

@@ -7,10 +7,10 @@ potentially undervalued stocks.
 ## Layout
 
 - `portalanaliz/core/` — SQLAlchemy models, SQLite setup (incl. FTS5), config from `.env`
-- `portalanaliz/scraper/` — Tapatalk client, rate limiter, resumable sync CLI, media downloader
+- `portalanaliz/scraper/` — Tapatalk client, rate limiter, resumable sync CLI
 - `portalanaliz/web/` — FastAPI + Jinja2 UI (dashboard, browser, search, authors)
 - `portalanaliz/scoring/` — LLM pipeline for binary per-post undervaluation signals (free prefilter → one batched undervalued 0/1 call, 5 posts/call → per-ticker signal counts), provider-agnostic (Anthropic or local OpenAI-compatible)
-- `data/` — gitignored: `portalanaliz.db` (SQLite) and `media/` (sha256-named files)
+- `data/` — gitignored: `portalanaliz.db` (SQLite)
 
 ## Commands
 
@@ -25,7 +25,7 @@ python -m portalanaliz.scoring prompts                        # list prompt sets
 python -m portalanaliz.scoring score --rerun all              # fresh pass of active config
 ```
 
-Sync subcommands: `forums | topics | posts | media | all`. Forum 3 = GPW stocks (main target).
+Sync subcommands: `forums | topics | posts | all`. Forum 3 = GPW stocks (main target).
 
 ## Config
 
@@ -40,9 +40,9 @@ touch topics with those ticker hints; empty = everything.
 
 ## Hard rules
 
-- **Every outgoing request** (API and media) goes through `TapatalkClient.call()` or
-  `MediaDownloader`, both sharing one `RateLimiter` (~2.5s + jitter). Never bypass it;
-  never lower the interval without the user asking.
+- **Every outgoing request** goes through `TapatalkClient.call()`, which applies one
+  `RateLimiter` (~2.5s + jitter). Never bypass it; never lower the interval without the
+  user asking.
 - Sync is resumable and budget-capped (`--budget`); never re-fetch stored data.
   Full raw API payload lives in `posts.raw_json` (zlib JSON) — parsing bugs are fixed
   by re-parsing, not re-downloading.

@@ -2,7 +2,7 @@
 
 Every outgoing request to the forum goes through TapatalkClient.call(),
 which applies the shared rate limiter and retry/backoff policy. Higher
-layers (sync jobs, media downloader) must never talk to the forum directly.
+layers (sync jobs) must never talk to the forum directly.
 """
 
 from __future__ import annotations

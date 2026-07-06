@@ -81,26 +81,6 @@ class Post(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     topic: Mapped[Topic] = relationship(back_populates="posts")
-    media: Mapped[list["Media"]] = relationship(back_populates="post")
-
-
-class Media(Base):
-    __tablename__ = "media"
-    __table_args__ = (UniqueConstraint("post_id", "source_url"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    post_id: Mapped[str] = mapped_column(String, ForeignKey("posts.id"), index=True)
-    source_url: Mapped[str] = mapped_column(String)
-    kind: Mapped[str] = mapped_column(String, default="inline")  # inline | attachment
-    status: Mapped[str] = mapped_column(String, default="pending", index=True)  # pending|done|failed
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
-    local_path: Mapped[str | None] = mapped_column(String, nullable=True)  # relative to data/media
-    sha256: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    mime: Mapped[str | None] = mapped_column(String, nullable=True)
-    size: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-    post: Mapped[Post] = relationship(back_populates="media")
 
 
 class PostScore(Base):

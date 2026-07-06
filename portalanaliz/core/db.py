@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 DB_PATH = DATA_DIR / "portalanaliz.db"
-MEDIA_DIR = DATA_DIR / "media"
 
 # timeout: tolerate concurrent writers (e.g. two scoring configs running
 # side by side) instead of failing fast with "database is locked".
@@ -70,7 +69,6 @@ def init_db() -> None:
     from portalanaliz.core import models  # noqa: F401  (register tables)
 
     DATA_DIR.mkdir(exist_ok=True)
-    MEDIA_DIR.mkdir(exist_ok=True)
 
     # Migration: widen post_scores' unique key to include the model pair
     # (rename old -> create_all makes fresh table -> copy -> drop). Each step

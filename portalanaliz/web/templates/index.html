@@ -7,7 +7,6 @@
   <div class="card"><div class="num">{{ stats.posts }}</div><div class="muted">posts</div></div>
   <div class="card"><div class="num">{{ stats.topics_complete }}/{{ stats.topics }}</div><div class="muted">topics archived</div></div>
   <div class="card"><div class="num">{{ stats.authors }}</div><div class="muted">authors</div></div>
-  <div class="card"><div class="num">{{ media.get('done', 0) }}</div><div class="muted">media stored ({{ media.get('pending', 0) }} pending, {{ media.get('failed', 0) }} failed)</div></div>
 </div>
 <p class="muted">Last fetch: {{ stats.last_fetch or 'never' }} ·
 Scoring: {{ scoring.undervalued }} undervalued / {{ scoring.scored }} analyzed /

@@ -27,9 +27,8 @@ STRIP_RE = re.compile(rf'\[/?(?:{STRIP_TAGS})[^\]]*\]', re.IGNORECASE)
 BARE_URL_RE = re.compile(r'(?<![">=])(https?://[^\s<\[]+)')
 
 
-def render(content: str, media_map: dict[str, str] | None = None) -> str:
-    """Render BBCode to HTML. media_map maps source URL -> local media path."""
-    media_map = media_map or {}
+def render(content: str) -> str:
+    """Render BBCode to HTML."""
     text = html.escape(content or "", quote=True)
     placeholders: list[str] = []
 
@@ -38,12 +37,15 @@ def render(content: str, media_map: dict[str, str] | None = None) -> str:
         return f"\x00{len(placeholders) - 1}\x00"
 
     def img_sub(m: re.Match) -> str:
-        url = html.unescape(m.group(1).strip())
-        src = f"/media/{media_map[url]}" if url in media_map else url
-        return stash(
-            f'<a href="{html.escape(src)}" target="_blank">'
-            f'<img src="{html.escape(src)}" loading="lazy" alt=""></a>'
-        )
+        # Media is no longer downloaded/hosted, so show a placeholder where an
+        # image used to be. Link to the original URL when it looks like one.
+        src = html.unescape(m.group(1).strip())
+        if src.startswith(("http://", "https://")):
+            return stash(
+                f'<a href="{html.escape(src)}" class="media-placeholder" '
+                f'target="_blank" rel="noopener">image</a>'
+            )
+        return stash('<span class="media-placeholder">image</span>')
 
     def url_text_sub(m: re.Match) -> str:
         href = m.group(1).strip()

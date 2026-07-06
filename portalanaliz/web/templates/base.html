@@ -39,8 +39,9 @@
   .pager a, .pager span.cur { padding:4px 10px; border:1px solid var(--border); border-radius:6px; background:var(--card); text-decoration:none; }
   .pager span.cur { background:var(--accent); color:#fff; border-color:var(--accent); }
   .badge { display:inline-block; font-size:12px; padding:1px 7px; border-radius:10px; background:#eef2ff; color:#3730a3; }
-  .attachments { padding:8px 14px; border-top:1px solid var(--border); }
-  .attachments img { max-height:120px; margin-right:8px; border-radius:4px; }
+  .media-placeholder { display:inline-block; margin:4px 0; padding:6px 12px; font-size:13px; color:var(--muted); background:#f4f4f5; border:1px dashed var(--border); border-radius:6px; text-decoration:none; }
+  .media-placeholder::before { content:"🖼 "; }
+  a.media-placeholder:hover { color:var(--accent); border-color:var(--accent); }
 </style>
 </head>
 <body>

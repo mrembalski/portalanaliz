@@ -7,15 +7,14 @@ import re
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import case, func, select, text
 from sqlalchemy.orm import Session
 
 from portalanaliz.core.config import load_scoring_settings
-from portalanaliz.core.db import MEDIA_DIR, SessionLocal, init_db
+from portalanaliz.core.db import SessionLocal, init_db
 from portalanaliz.core.models import (
-    Author, Forum, Media, Post, PostScore, StockScore, Topic,
+    Author, Forum, Post, PostScore, StockScore, Topic,
 )
 from portalanaliz.web.bbcode import render as render_bbcode
 
@@ -33,7 +32,6 @@ def _scoped_scores():
             PostScore.extract_model == SCORING.model)
 
 app = FastAPI(title="PortalAnaliz Archive")
-app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["fromjson"] = json.loads
 
@@ -47,24 +45,8 @@ def db() -> Session:
 
 
 def _render_posts(session: Session, posts: list[Post]) -> list[dict]:
-    """Attach rendered HTML and media info to posts."""
-    ids = [p.id for p in posts]
-    media_rows = session.scalars(select(Media).where(Media.post_id.in_(ids))).all() if ids else []
-    by_post: dict[str, list[Media]] = {}
-    for m in media_rows:
-        by_post.setdefault(m.post_id, []).append(m)
-
-    out = []
-    for p in posts:
-        media = by_post.get(p.id, [])
-        media_map = {m.source_url: m.local_path for m in media if m.status == "done" and m.local_path}
-        attachments = [m for m in media if m.kind == "attachment" and m.status == "done"]
-        out.append({
-            "post": p,
-            "html": render_bbcode(p.content, media_map),
-            "attachments": attachments,
-        })
-    return out
+    """Attach rendered HTML to posts."""
+    return [{"post": p, "html": render_bbcode(p.content)} for p in posts]
 
 
 @app.get("/")
@@ -80,9 +62,6 @@ def index(request: Request, config: str = "", session: Session = Depends(db)):
         "authors": session.scalar(select(func.count(Author.id))) or 0,
         "last_fetch": session.scalar(select(func.max(Post.fetched_at))),
     }
-    media_by_status = dict(
-        session.execute(select(Media.status, func.count(Media.id)).group_by(Media.status)).all()
-    )
     top_topics = session.scalars(
         select(Topic).order_by(Topic.reply_number.desc()).limit(15)
     ).all()
@@ -108,7 +87,7 @@ def index(request: Request, config: str = "", session: Session = Depends(db)):
     top_stocks = _latest_stock_scores(session, limit=10)
     hot = [r for r in _momentum_rows(session, config=cfg) if r["trend"] > 0][:5]
     return templates.TemplateResponse(request, "index.html", {
-        "stats": stats, "media": media_by_status,
+        "stats": stats,
         "top_topics": top_topics, "recent": recent, "topic_titles": topic_titles,
         "scoring": scoring, "top_stocks": top_stocks, "hot": hot,
         "configs": _scoring_configs(session), "config_key": config,

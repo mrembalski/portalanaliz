@@ -1,4 +1,4 @@
-"""Forum sync: forums tree, topic listings, posts (backfill + incremental), media.
+"""Forum sync: forums tree, topic listings, posts (backfill + incremental).
 
 All modes are resumable and budget-aware:
 - Topic cursor (`Topic.posts_fetched`) means a killed run never re-downloads posts.
@@ -8,7 +8,6 @@ Usage:
     python -m portalanaliz.scraper.sync forums
     python -m portalanaliz.scraper.sync topics [--forum-id ID]
     python -m portalanaliz.scraper.sync posts  [--forum-id ID] [--budget N]
-    python -m portalanaliz.scraper.sync media  [--budget N]
     python -m portalanaliz.scraper.sync all    [--budget N]
 """
 
@@ -26,9 +25,8 @@ from sqlalchemy.orm import Session
 
 from portalanaliz.core.config import load_settings
 from portalanaliz.core.db import get_session, init_db
-from portalanaliz.core.models import Author, Forum, Media, Post, Topic
+from portalanaliz.core.models import Author, Forum, Post, Topic
 from portalanaliz.core.util import utcnow
-from portalanaliz.scraper.media import MediaDownloader, extract_media_urls
 from portalanaliz.scraper.tapatalk import RequestBudgetExceeded, TapatalkClient
 
 log = logging.getLogger(__name__)
@@ -190,13 +188,6 @@ def _upsert_post(session: Session, topic_id: str, position: int, payload: dict) 
     post.raw_json = zlib.compress(json.dumps(payload, default=str).encode())
     post.fetched_at = utcnow()
 
-    for url, kind in extract_media_urls(payload):
-        exists = session.scalars(
-            select(Media).where(Media.post_id == pid, Media.source_url == url)
-        ).first()
-        if exists is None:
-            session.add(Media(post_id=pid, source_url=url, kind=kind))
-
 
 def _to_naive_utc(value: object) -> datetime | None:
     if isinstance(value, datetime):
@@ -210,10 +201,10 @@ def _to_naive_utc(value: object) -> datetime | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sync portalanaliz.pl forum data")
-    parser.add_argument("command", choices=["forums", "topics", "posts", "media", "all"])
+    parser.add_argument("command", choices=["forums", "topics", "posts", "all"])
     parser.add_argument("--forum-id", help="restrict to one forum")
     parser.add_argument("--budget", type=int, default=None,
-                        help="max outgoing requests this run (API + media)")
+                        help="max outgoing API requests this run")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -233,16 +224,6 @@ def main() -> None:
             if args.command in ("posts", "all"):
                 sync_posts(client, session, forum_id=args.forum_id,
                            tickers=settings.focus_tickers)
-            if args.command in ("media", "all"):
-                budget_left = None
-                if args.budget is not None:
-                    budget_left = max(0, args.budget - client.requests_made)
-                downloader = MediaDownloader(client.limiter, max_requests=budget_left)
-                try:
-                    done = downloader.download_pending(session)
-                    log.info("media downloaded: %d", done)
-                finally:
-                    downloader.close()
         except RequestBudgetExceeded as exc:
             session.commit()
             log.info("stopping: %s (progress saved, rerun to continue)", exc)

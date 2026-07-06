@@ -13,8 +13,6 @@ Endpoint: phpBB 3.1, Tapatalk plugin `pb31_2.3.0`, api_level 4, login required
   commits after each page — safe to kill anytime.
 - Partially-fetched topics are synced before untouched ones (don't leave threads half-archived).
 - Empty page while cursor < expected ⇒ deleted posts; set cursor to server total, move on.
-- Media rows are created at post ingest (from `[img]` tags + `attachments`/`inlineattachments`);
-  downloading is a separate step (`sync media`), deduped by content sha256.
 - `RequestBudgetExceeded` is the clean exit path for budgeted runs — progress must already
   be committed when it propagates.
 - HTTP 403 ⇒ raise immediately, no retry (we may be blocked; don't hammer).

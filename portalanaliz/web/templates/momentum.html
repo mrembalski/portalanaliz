@@ -2,38 +2,42 @@
 {% block title %}Momentum{% endblock %}
 {% block content %}
 <h1>Discussion momentum</h1>
-<p class="muted">Line = month-over-month change (derivative) of the rolling 12-month post
-count — rising line means the stock's thread is heating up. Color = share of that
-month's analyzed posts calling the stock undervalued:
+<p class="muted">Line = rolling 12-month post count (discussion level); the dashed line
+marks the window's average, so a line above it means above-normal activity. Color =
+share of that month's analyzed posts calling the stock undervalued:
 <span style="color:#d1d5db">■ no data</span>
 <span style="color:#64748b">■ 0%</span>
 <span style="color:#3d8b6a">■ 50%</span>
 <span style="color:#16a34a">■ 100%</span>.
-Sorted by the latest trend, hottest first.</p>
+Heat = latest level ÷ window average. Sorted by heat, hottest first.</p>
 
 {% if configs %}
 <form method="get" action="/momentum" style="margin:0 0 12px">
-  <label class="muted" style="font-size:13px">Undervaluation colored by
-    <select name="config" onchange="this.form.submit()">
-      <option value="">active config{% if not config_key %} · {{ configs|selectattr('is_active')|map(attribute='label')|first|default('—') }}{% endif %}</option>
-      {% for c in configs %}
-      <option value="{{ c.key }}"{% if c.key == config_key %} selected{% endif %}>{{ c.label }} ({{ c.scored }} scored){% if c.is_active %} · active{% endif %}</option>
-      {% endfor %}
-    </select>
-  </label>
+  <div class="muted" style="font-size:13px;margin-bottom:6px">Undervaluation colored by — tick one or more (combined with binary OR: a post
+    counts as undervalued if <em>any</em> ticked config flags it)</div>
+  <div style="display:flex;flex-direction:column;gap:4px;font-size:13px">
+    {% for c in configs %}
+    <label><input type="checkbox" name="config" value="{{ c.key }}"{% if c.key in config_keys %} checked{% endif %}>
+      {{ c.label }} <span class="muted">({{ c.scored }} scored){% if c.is_active %} · active{% endif %}</span></label>
+    {% endfor %}
+  </div>
+  <div style="margin-top:8px">
+    <button type="submit">Apply</button>
+    {% if config_keys %}<a href="/momentum" class="muted" style="margin-left:10px">reset to active config</a>{% endif %}
+  </div>
 </form>
 {% endif %}
 
 {% if rows %}
 <table>
-  <tr><th>Ticker</th><th>Activity derivative (5y)</th><th>Trend</th><th>Posts (12m)</th><th>Undervalued (12m)</th></tr>
+  <tr><th>Ticker</th><th>Discussion level (12m rolling, 5y)</th><th>Heat</th><th>Posts (12m)</th><th>Undervalued (12m)</th></tr>
   {% for r in rows %}
   <tr>
     <td><a href="/stocks/{{ r.ticker }}"><span class="badge">{{ r.ticker }}</span></a></td>
     <td>
       <svg width="{{ r.w }}" height="{{ r.h }}" style="display:block">
-        {% if r.zero_y is not none %}
-        <line x1="{{ r.x0 }}" y1="{{ r.zero_y }}" x2="{{ r.w }}" y2="{{ r.zero_y }}"
+        {% if r.base_y is not none %}
+        <line x1="{{ r.x0 }}" y1="{{ r.base_y }}" x2="{{ r.w }}" y2="{{ r.base_y }}"
               stroke="#e5e7eb" stroke-width="1" stroke-dasharray="3,3"/>
         {% endif %}
         {% for x1, y1, x2, y2, color in r.segments %}
@@ -42,7 +46,7 @@ Sorted by the latest trend, hottest first.</p>
         {% endfor %}
       </svg>
     </td>
-    <td>{% if r.trend > 0 %}📈 +{{ r.trend }}{% elif r.trend < 0 %}📉 {{ r.trend }}{% else %}—{% endif %}</td>
+    <td>{% if r.heat > 1 %}🔥 {{ r.heat }}×{% elif r.heat < 1 %}❄️ {{ r.heat }}×{% else %}— {{ r.heat }}×{% endif %}</td>
     <td>{{ r.posts_window }}</td>
     <td>{% if r.uv_recent is not none %}{{ "%.0f"|format(100 * r.uv_recent) }}%{% else %}<span class="muted">not scored</span>{% endif %}</td>
   </tr>

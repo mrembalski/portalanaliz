@@ -85,7 +85,8 @@ def index(request: Request, config: str = "", session: Session = Depends(db)):
                                .where(*_scoped_scores())) or 0.0,
     }
     top_stocks = _latest_stock_scores(session, limit=10)
-    hot = [r for r in _momentum_rows(session, config=cfg) if r["trend"] > 0][:5]
+    hot = [r for r in _momentum_rows(session, configs=([cfg] if cfg else None))
+           if r["heat"] > 1][:5]
     return templates.TemplateResponse(request, "index.html", {
         "stats": stats,
         "top_topics": top_topics, "recent": recent, "topic_titles": topic_titles,
@@ -158,13 +159,22 @@ def _resolve_config(key: str | None) -> tuple[str, str, str] | None:
     return (parts[0], parts[1], parts[2]) if len(parts) == 3 else None
 
 
+def _resolve_configs(keys: list[str]) -> list[tuple[str, str, str]] | None:
+    """Multiple config keys -> list of tuples, or None (fall back to active)."""
+    out = [c for k in keys if (c := _resolve_config(k))]
+    return out or None
+
+
 def _momentum_rows(session: Session, window: int = 12, span: int = 60,
                    min_posts: int = 10,
-                   config: tuple[str, str, str] | None = None) -> list[dict]:
-    """Per ticker: derivative of the rolling {window}-month post count, as
-    sparkline segments whose color encodes the share of that month's scored
-    posts flagging undervaluation. Coloring uses `config` when given, else the
-    active config, else the config with the most scored rows for the ticker."""
+                   configs: list[tuple[str, str, str]] | None = None) -> list[dict]:
+    """Per ticker: the rolling {window}-month post count as sparkline segments
+    (the discussion *level*, not its derivative), colored by the share of that
+    month's scored posts flagging undervaluation. A dashed reference line marks
+    the window's average level; `heat` = latest level / that average (>1 = above
+    normal). Coloring uses `configs` when given (a post counts as undervalued if
+    ANY of the picked configs flags it — binary OR), else the active config, else
+    the config with the most scored rows for the ticker."""
     counts = session.execute(
         select(Topic.ticker_hint, func.strftime("%Y-%m", Post.post_time).label("m"),
                func.count(Post.id))
@@ -182,25 +192,25 @@ def _momentum_rows(session: Session, window: int = 12, span: int = 60,
     scored = session.execute(
         select(Topic.ticker_hint, func.strftime("%Y-%m", Post.post_time),
                PostScore.prompt_version, PostScore.filter_model,
-               PostScore.extract_model, PostScore.undervalued, PostScore.tickers_json)
+               PostScore.extract_model, PostScore.post_id,
+               PostScore.undervalued, PostScore.tickers_json)
         .join(Post, Post.id == PostScore.post_id)
         .join(Topic, Topic.id == Post.topic_id)
         .where(PostScore.status == "scored", Topic.ticker_hint.is_not(None))
     ).all()
-    # ticker -> config -> month -> [scored, undervalued]
-    uv_raw: dict[str, dict[tuple, dict[str, list[int]]]] = {}
-    for ticker, month, pv, fm, em, uv, tj in scored:
-        bucket = uv_raw.setdefault(ticker, {}).setdefault((pv, fm, em), {}) \
-                       .setdefault(month, [0, 0])
-        bucket[0] += 1
-        if uv and ticker in (json.loads(tj) if tj else []):
-            bucket[1] += 1
-    preferred = config or (SCORING.prompt, "", SCORING.model)
+    # ticker -> config -> month -> {post_id: undervalued_flag} — keep per-post
+    # identity so multiple configs can be OR-ed at the post level.
+    uv_raw: dict[str, dict[tuple, dict[str, dict[int, bool]]]] = {}
+    for ticker, month, pv, fm, em, pid, uv, tj in scored:
+        flag = bool(uv and ticker in (json.loads(tj) if tj else []))
+        uv_raw.setdefault(ticker, {}).setdefault((pv, fm, em), {}) \
+              .setdefault(month, {})[pid] = flag
+    preferred = (SCORING.prompt, "", SCORING.model)
 
     out = []
-    # ~7px per derivative point: short histories draw a short line (left-padded,
-    # so the most recent month stays flush to the right edge) instead of
-    # stretching a few points across the full width. Capped at max_width.
+    # ~7px per point: short histories draw a short line (left-padded, so the most
+    # recent month stays flush to the right edge) instead of stretching a few
+    # points across the full width. Capped at max_width.
     px_per_point, max_width, height = 7, 240, 44
     for ticker, months in by_ticker.items():
         if sum(months.values()) < min_posts:
@@ -212,56 +222,65 @@ def _momentum_rows(session: Session, window: int = 12, span: int = 60,
             m = _next_month(m)
         series = [months.get(m, 0) for m in axis]
         rolling = [sum(series[max(0, i - window + 1):i + 1]) for i in range(len(series))]
-        deriv = [rolling[i] - rolling[i - 1] for i in range(1, len(rolling))]
-        d_axis = axis[1:]
-        if len(deriv) < 2:
+        level, l_axis = rolling[-span:], axis[-span:]
+        if len(level) < 2:
             continue
-        deriv, d_axis = deriv[-span:], d_axis[-span:]
 
-        configs = uv_raw.get(ticker, {})
-        if config is not None:
-            # Explicit pick: show only that config's judgment (no cross-config fallback).
-            chosen = configs.get(config, {})
+        cfgmap = uv_raw.get(ticker, {})
+        if configs is not None:
+            # Explicit pick: OR the picked configs at the post level (a post is
+            # undervalued if any of them flagged it); no cross-config fallback.
+            chosen: dict[str, dict[int, bool]] = {}
+            for c in configs:
+                for m, posts in cfgmap.get(c, {}).items():
+                    dst = chosen.setdefault(m, {})
+                    for pid, flag in posts.items():
+                        dst[pid] = dst.get(pid, False) or flag
         else:
-            chosen = configs.get(preferred) or (
-                max(configs.values(), key=lambda c: sum(v[0] for v in c.values()))
-                if configs else {})
-        uv_pct = {m: (v[1] / v[0] if v[0] else None) for m, v in chosen.items()}
+            chosen = cfgmap.get(preferred) or (
+                max(cfgmap.values(), key=lambda mm: sum(len(p) for p in mm.values()))
+                if cfgmap else {})
+        uv_pct = {m: (sum(p.values()) / len(p) if p else None)
+                  for m, p in chosen.items()}
 
-        lo, hi = min(deriv), max(deriv)
+        lo, hi = min(level), max(level)
         spread = (hi - lo) or 1
-        line_w = min(max_width, px_per_point * max(1, len(deriv) - 1))
+        line_w = min(max_width, px_per_point * max(1, len(level) - 1))
         x0 = max_width - line_w  # left pad; recent month flush to the right
-        step = line_w / max(1, len(deriv) - 1)
-        pts = [(round(x0 + i * step, 1),
-                round(height - 4 - (d - lo) / spread * (height - 8), 1))
-               for i, d in enumerate(deriv)]
+        step = line_w / max(1, len(level) - 1)
+
+        def _y(v):
+            return round(height - 4 - (v - lo) / spread * (height - 8), 1)
+
+        pts = [(round(x0 + i * step, 1), _y(v)) for i, v in enumerate(level)]
         segments = [
-            (*pts[i], *pts[i + 1], _uv_color(uv_pct.get(d_axis[i + 1])))
+            (*pts[i], *pts[i + 1], _uv_color(uv_pct.get(l_axis[i + 1])))
             for i in range(len(pts) - 1)
         ]
-        zero_y = round(height - 4 - (0 - lo) / spread * (height - 8), 1)
-        recent_scored = sum(v[0] for m, v in chosen.items() if m in d_axis[-window:])
-        recent_uv = sum(v[1] for m, v in chosen.items() if m in d_axis[-window:])
+        avg = sum(level) / len(level)  # window-average discussion level
+        heat = round(level[-1] / avg, 1) if avg else 1.0
+        recent = l_axis[-window:]
+        recent_scored = sum(len(p) for m, p in chosen.items() if m in recent)
+        recent_uv = sum(sum(p.values()) for m, p in chosen.items() if m in recent)
         out.append({
             "ticker": ticker,
             "segments": segments,
-            "zero_y": zero_y if lo <= 0 <= hi else None,
-            "trend": round(sum(deriv[-3:]) / min(3, len(deriv)), 1),
+            "base_y": _y(avg) if lo < avg < hi else None,
+            "heat": heat,
             "posts_window": rolling[-1],
             "uv_recent": (recent_uv / recent_scored) if recent_scored else None,
             "w": max_width, "x0": x0, "h": height,
         })
-    out.sort(key=lambda r: r["trend"], reverse=True)
+    out.sort(key=lambda r: r["heat"], reverse=True)
     return out
 
 
 @app.get("/momentum")
-def momentum(request: Request, config: str = "", session: Session = Depends(db)):
-    cfg = _resolve_config(config)
+def momentum(request: Request, config: list[str] = Query(default=[]),
+             session: Session = Depends(db)):
     return templates.TemplateResponse(request, "momentum.html", {
-        "rows": _momentum_rows(session, config=cfg)[:50],
-        "configs": _scoring_configs(session), "config_key": config,
+        "rows": _momentum_rows(session, configs=_resolve_configs(config))[:50],
+        "configs": _scoring_configs(session), "config_keys": config,
     })
 
 

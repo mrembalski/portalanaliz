@@ -1,5 +1,9 @@
 # Personal preferences
 
+## Communication style
+
+Caveman mode **always active** (full level). Invoke `/caveman` skill at session start. Off only if user says "stop caveman" or "normal mode".
+
 ## Commands
 - Don't run dev server commands - assume it's already running 
 

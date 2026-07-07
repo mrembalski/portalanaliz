@@ -181,6 +181,9 @@ def _score_parallel(session: Session, settings: ScoringSettings,
                 delta = fut.result()
                 for k in _STAT_KEYS:
                     stats[k] += delta[k]
+            # End the read transaction so the next unscored_posts() sees the
+            # workers' commits (SQLite keeps a stale snapshot otherwise).
+            session.rollback()
             if limit is not None and llm_posts >= limit:
                 log.info("--limit %d reached", limit)
                 break

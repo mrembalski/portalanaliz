@@ -31,6 +31,9 @@ How to apply:
 - Never use Haiku.
 - Mechanics: gpt-5.5 is only reachable through the Codex CLI - `codex exec` or `codex review`. 
 
+Using gpt-5.5 inside workflows and subagents (the model parameter only takes Claude models, so use a wrapper): 
+- Spawn a thin Claude wrapper agent with `model: 'sonnet', effort: 'low'` whose prompt instructs it to write a self-contained codex prompt, run `codex exec` via Bash, and return 
+
 # PortalAnaliz Forum Intelligence
 
 Local archive + analysis of the portalanaliz.pl stock forum (Polish, GPW-focused),

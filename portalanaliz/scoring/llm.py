@@ -140,6 +140,63 @@ class OpenAICompatClient(LLMClient):
         self._http.close()
 
 
+class OllamaClient(LLMClient):
+    """Ollama's native /api/chat with thinking DISABLED (`think: false`).
+
+    The OpenAI-compat /v1 endpoint ignores the think toggle, so reasoning
+    models (qwen3+, gemma-reasoning) burn thousands of completion tokens
+    thinking before the tiny JSON answer — 10-100x slower. Hitting /api/chat
+    with `think: false` collapses output to just the `{"scores": [...]}` line,
+    which is all the batched pipeline needs. Use for bulk local scoring where
+    the model's own chain-of-thought isn't worth the throughput hit.
+    """
+
+    def __init__(self, spec: str, model: str, base_url: str, api_key: str):
+        super().__init__(spec)
+        self.model = model
+        # LOCAL_LLM_BASE_URL usually ends in /v1 (OpenAI path); native API is
+        # at the server root.
+        root = base_url.rstrip("/")
+        if root.endswith("/v1"):
+            root = root[:-3]
+        self._http = httpx.Client(
+            base_url=root,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=600.0,
+        )
+
+    def complete(self, system: str, user: str, max_tokens: int = 1024) -> LLMResponse:
+        try:
+            resp = self._http.post("/api/chat", json={
+                "model": self.model,
+                "stream": False,
+                "think": False,
+                "options": {"temperature": 0, "num_predict": max_tokens},
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            })
+        except httpx.HTTPError as exc:
+            raise LLMError(f"ollama request failed: {exc!r}") from exc
+        if resp.status_code != 200:
+            raise LLMError(f"ollama HTTP {resp.status_code}: {resp.text[:300]}")
+        data = resp.json()
+        try:
+            text = data["message"]["content"] or ""
+        except (KeyError, TypeError) as exc:
+            raise LLMError(f"unexpected ollama response shape: {data}") from exc
+        return LLMResponse(
+            text=text, model=self.spec,
+            input_tokens=int(data.get("prompt_eval_count") or 0),
+            output_tokens=int(data.get("eval_count") or 0),
+            cost_usd=0.0,
+        )
+
+    def close(self) -> None:
+        self._http.close()
+
+
 class ClaudeCLIClient(LLMClient):
     """Headless `claude -p` — one subprocess per call, subscription quota.
 
@@ -228,12 +285,14 @@ def make_client(spec: str, settings: ScoringSettings) -> LLMClient:
         return AnthropicClient(spec, model, settings.anthropic_api_key)
     if provider == "local":
         return OpenAICompatClient(spec, model, settings.local_base_url, settings.local_api_key)
+    if provider == "ollama":
+        return OllamaClient(spec, model, settings.local_base_url, settings.local_api_key)
     if provider == "claude":
         return ClaudeCLIClient(spec, model)
     if provider == "codex":
         return CodexCLIClient(spec, model)
     raise LLMError(f"unknown provider {provider!r} in {spec!r} "
-                   "(use anthropic:, local:, claude: or codex:)")
+                   "(use anthropic:, local:, ollama:, claude: or codex:)")
 
 
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)

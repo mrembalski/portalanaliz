@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import zlib
 from datetime import date, datetime
 
 from sqlalchemy import (
@@ -81,6 +83,13 @@ class Post(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     topic: Mapped[Topic] = relationship(back_populates="posts")
+
+    @property
+    def attachments(self) -> list[dict]:
+        """Attachment dicts from the raw payload (Tapatalk hosts images here)."""
+        if not self.raw_json:
+            return []
+        return json.loads(zlib.decompress(self.raw_json)).get("attachments") or []
 
 
 class PostScore(Base):

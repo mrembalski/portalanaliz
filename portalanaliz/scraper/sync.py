@@ -34,8 +34,23 @@ log = logging.getLogger(__name__)
 TOPICS_PER_PAGE = 50
 POSTS_PER_PAGE = 50
 
-# "(SNT) SYNEKTIK" or "[LTM] LONGTERM GAMES" -> "SNT" / "LTM"
+# "(SNT) SYNEKTIK" or "[LTM] LONGTERM GAMES" -> "SNT" / "LTM";
+# also trailing/inline form "Silvair-REGS (SVRS)" -> "SVRS"
 TICKER_RE = re.compile(r"^[(\[]([A-Z0-9]{2,6})[)\]]")
+TICKER_ANYWHERE_RE = re.compile(r"[(\[]([A-Z0-9]{2,6})[)\]]")
+# bracketed abbreviations that are not tickers
+NOT_TICKERS = {"IPO", "OT", "US", "USA", "PL", "AI", "AF", "AT", "SPA", "WZA",
+               "FIPA", "GPW", "NC", "ETF", "POLSKA", "BUMECH"}
+
+
+def extract_ticker(title: str) -> str | None:
+    m = TICKER_RE.match(title)
+    if m:
+        return m.group(1)
+    for m in TICKER_ANYWHERE_RE.finditer(title):
+        if m.group(1) not in NOT_TICKERS:
+            return m.group(1)
+    return None
 
 
 # ------------------------------------------------------------------- forums
@@ -109,9 +124,9 @@ def _upsert_topic(session: Session, forum_id: str, t: dict, sticky: bool) -> Non
     topic.forum_id = forum_id
     topic.reply_number = int(t.get("reply_number") or 0)
     topic.is_sticky = sticky or topic.is_sticky
-    m = TICKER_RE.match(title)
-    if m:
-        topic.ticker_hint = m.group(1)
+    hint = extract_ticker(title)
+    if hint:
+        topic.ticker_hint = hint
 
 
 # -------------------------------------------------------------------- posts

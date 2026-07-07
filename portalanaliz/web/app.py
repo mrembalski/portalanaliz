@@ -46,7 +46,7 @@ def db() -> Session:
 
 def _render_posts(session: Session, posts: list[Post]) -> list[dict]:
     """Attach rendered HTML to posts."""
-    return [{"post": p, "html": render_bbcode(p.content)} for p in posts]
+    return [{"post": p, "html": render_bbcode(p.content, p.attachments)} for p in posts]
 
 
 @app.get("/")
@@ -317,7 +317,7 @@ def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
                 continue
             seen.add(post.id)
             rows.append({"score": score, "post": post,
-                         "html": render_bbcode(post.content)})
+                         "html": render_bbcode(post.content, post.attachments)})
         return rows
 
     best = _flagged(scoped=True)
@@ -414,8 +414,17 @@ def topic_view(topic_id: str, request: Request, page: int = Query(1, ge=1),
         select(Post).where(Post.topic_id == topic_id).order_by(Post.position)
         .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)
     ).all()
+    # Posts the LLM flagged as undervalued under the active config — tinted green.
+    uv_ids = set(session.scalars(
+        select(PostScore.post_id).where(
+            *_scoped_scores(), PostScore.undervalued.is_(True),
+            PostScore.post_id.in_([p.id for p in posts]))
+    ).all()) if posts else set()
+    items = _render_posts(session, posts)
+    for item in items:
+        item["uv"] = item["post"].id in uv_ids
     return templates.TemplateResponse(request, "topic.html", {
-        "topic": topic, "items": _render_posts(session, posts), "page": page,
+        "topic": topic, "items": items, "page": page,
         "pages": max(1, -(-total // PAGE_SIZE)), "total": total,
     })
 

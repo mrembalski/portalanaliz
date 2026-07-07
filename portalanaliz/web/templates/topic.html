@@ -8,7 +8,7 @@
 {{ pager(page, pages, '/topics/' + topic.id) }}
 
 {% for item in items %}
-<div class="post" id="p{{ item.post.position }}">
+<div class="post{% if item.uv %} uv{% endif %}" id="p{{ item.post.position }}">
   <div class="post-head">
     <span class="author"><a href="/authors/{{ item.post.author_id }}">{{ item.post.author_name }}</a></span>
     <span class="muted">{{ item.post.post_time }}</span>

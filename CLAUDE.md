@@ -46,6 +46,8 @@ Ultimate goal: mine members' analyses to surface potentially undervalued stocks.
 - `portalanaliz/core/` — SQLAlchemy models, SQLite setup (incl. FTS5), config from `.env`
 - `portalanaliz/scraper/` — Tapatalk client, rate limiter, resumable sync CLI
 - `portalanaliz/web/` — FastAPI + Jinja2 UI (dashboard, browser, search, authors)
+  - Topic view tints each post green (`.post.uv`) when that post is flagged
+    `PostScore.undervalued` under the ACTIVE config — per-post, not whole-topic.
 - `portalanaliz/scoring/` — LLM pipeline for binary per-post provider-agnostic undervaluation signals
 - `data/` — gitignored: `portalanaliz.db` (SQLite)
 

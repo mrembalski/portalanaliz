@@ -27,24 +27,37 @@ STRIP_RE = re.compile(rf'\[/?(?:{STRIP_TAGS})[^\]]*\]', re.IGNORECASE)
 BARE_URL_RE = re.compile(r'(?<![">=])(https?://[^\s<\[]+)')
 
 
-def render(content: str) -> str:
-    """Render BBCode to HTML."""
+def render(content: str, attachments: list[dict] | None = None) -> str:
+    """Render BBCode to HTML.
+
+    Tapatalk empties inline ``[img][/img]`` tags and moves the real file URLs
+    into a separate ``attachments`` array; pass it so those images stay
+    clickable.
+    """
     text = html.escape(content or "", quote=True)
     placeholders: list[str] = []
+    # URLs for empty [img] tags, consumed in document order.
+    attach_urls = [a["url"] for a in (attachments or [])
+                   if a.get("content_type") == "image" and a.get("url")]
 
     def stash(html_fragment: str) -> str:
         placeholders.append(html_fragment)
         return f"\x00{len(placeholders) - 1}\x00"
+
+    def media_link(src: str) -> str:
+        return stash(
+            f'<a href="{html.escape(src)}" class="media-placeholder" '
+            f'target="_blank" rel="noopener">image</a>'
+        )
 
     def img_sub(m: re.Match) -> str:
         # Media is no longer downloaded/hosted, so show a placeholder where an
         # image used to be. Link to the original URL when it looks like one.
         src = html.unescape(m.group(1).strip())
         if src.startswith(("http://", "https://")):
-            return stash(
-                f'<a href="{html.escape(src)}" class="media-placeholder" '
-                f'target="_blank" rel="noopener">image</a>'
-            )
+            return media_link(src)
+        if attach_urls:  # empty tag -> next attachment URL
+            return media_link(attach_urls.pop(0))
         return stash('<span class="media-placeholder">image</span>')
 
     def url_text_sub(m: re.Match) -> str:
@@ -82,6 +95,10 @@ def render(content: str) -> str:
     text = BARE_URL_RE.sub(lambda m: stash(
         f'<a href="{m.group(1)}" target="_blank" rel="noopener">{m.group(1)}</a>'), text)
     text = text.replace("\n", stash("<br>"))
+
+    # Attachments not referenced by an inline [img] tag: append as links.
+    for src in attach_urls:
+        text += stash("<br>") + media_link(src)
 
     for i, fragment in enumerate(placeholders):
         text = text.replace(f"\x00{i}\x00", fragment)

@@ -50,6 +50,11 @@ topic's own `ticker_hint` (no per-post ticker/reason extraction anymore).
 - Provider-agnostic: model specs are `provider:model`. Providers:
   `anthropic` (API, needs ANTHROPIC_API_KEY); `local` (OpenAI-compatible
   /chat/completions — Ollama, LM Studio, vLLM at `LOCAL_LLM_BASE_URL`);
+  `ollama` (Ollama native /api/chat with `think:false` — same
+  `LOCAL_LLM_BASE_URL`, strips a trailing `/v1`; use for BULK local scoring:
+  disabling thinking collapses reasoning models' output from thousands of
+  tokens to the ~20-token JSON, a 10-100x throughput win the /v1 endpoint
+  can't get because it ignores the think toggle);
   `claude` (headless `claude -p` CLI); `codex` (headless `codex exec` CLI,
   OpenAI GPT-5.x, read-only sandbox — no token usage exposed so cost logs $0).
   Everything after the first colon is the model name, so Ollama tags like

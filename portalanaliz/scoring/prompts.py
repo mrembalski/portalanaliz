@@ -69,12 +69,24 @@ sentyment, przeczucia; słowo "tanio"/"niedowartościowana" bez uzasadnienia;
 relacja wyników bez własnego wniosku autora o wycenie."""
 
 
+_CRIT_SENT1 = """\
+Czy AUTOR POSTA wyraża POZYTYWNE nastawienie do spółki, której dotyczy post
+(oczekuje wzrostu kursu, poprawy wyników, dobrze ocenia biznes lub perspektywy)?
+
+Odpowiedz 1, gdy wydźwięk posta wobec spółki jest wyraźnie pozytywny.
+Odpowiedz 0, gdy wydźwięk jest negatywny, mieszany, neutralny (sama relacja
+faktów bez oceny) albo post nie dotyczy żadnej spółki."""
+
+
 PROMPTS: dict[str, PromptSet] = {
     # Flags only undervaluation theses grounded in the author's OWN analysis
     # or research — repeating someone else's recommendation doesn't count.
     # uv4 = uv3's criteria under the single-post framing (uv3 rows in the DB
     # were scored with the old batched JSON framing — kept for comparison).
     "uv4": PromptSet(system=_compose(_CRIT_UV3)),
+    # Sentiment, not valuation: 1 = author clearly positive about the company,
+    # 0 = negative/mixed/neutral/off-topic. Same single-post 0/1 framing.
+    "sent1": PromptSet(system=_compose(_CRIT_SENT1)),
 }
 
 DEFAULT_PROMPT = "uv4"

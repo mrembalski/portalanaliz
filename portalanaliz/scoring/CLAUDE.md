@@ -25,7 +25,9 @@ ticker/reason extraction anymore).
   Rollup and web UI only read the active config's rows.
 - Prompts: built-in in `prompts.py:PROMPTS` (`uv4` = requires the thesis to
   come from the author's OWN analysis/research; same criteria as the retired
-  batched `uv3`, whose rows stay in the DB) plus user files in
+  batched `uv3`, whose rows stay in the DB; `sent1` = sentiment, not
+  valuation — 1 when the author is clearly positive about the company,
+  0 for negative/mixed/neutral/off-topic) plus user files in
   `prompts/<name>.prompt`
   (single `[scoring]` section — legacy `[extract]` accepted, `[filter]`
   ignored; see `prompts/README.md`). Each set is just the CRITERIA; the

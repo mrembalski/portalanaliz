@@ -51,7 +51,8 @@ Ultimate goal: mine members' analyses to surface potentially undervalued stocks.
 - `portalanaliz/scraper/` — Tapatalk client, rate limiter, resumable sync CLI
 - `portalanaliz/web/` — FastAPI + Jinja2 UI (dashboard, browser, search, authors)
   - Topic view tints each post green (`.post.uv`) when that post is flagged
-    `PostScore.undervalued` under the ACTIVE config — per-post, not whole-topic.
+    (`PostScore.undervalued` = 1, the prompt's signal) under the ACTIVE config
+    — per-post, not whole-topic.
 - `portalanaliz/scoring/` — LLM pipeline for binary per-post provider-agnostic signals; prompt sets: `uv4` (undervaluation, default), `sent1` (positive sentiment)
 - `data/` — gitignored: `portalanaliz.db` (SQLite)
 
@@ -71,6 +72,15 @@ Remember to use `.venv/bin/python` instead of `python`.
 ```
 
 Sync subcommands: `forums | topics | posts | all`. Forum 3 = GPW stocks (main target).
+
+### Picking scoring models
+
+When asked to use a model by loose name (e.g. "gemma"), do NOT pick a new model
+from `ollama list` — resolve it against models already used: check
+`SCORING_MODEL` in `.env` and past configs in `scoring stats` output. Only use
+a model never seen there if the user gives its exact tag. (Past mistake:
+"gemma" resolved to fresh `gemma3:4b` from Ollama instead of the established
+`ollama:gemma4:26b-a4b-it-q4_K_M`.)
 
 Scoring runs are long-lived and network-bound (each batch waits on the remote LLM), so the
 process shows near-zero local CPU while it works; that's normal, not a hang.

@@ -1,6 +1,8 @@
-"""Scoring pipeline: one LLM undervaluation call per post.
+"""Scoring pipeline: one LLM call per post.
 
-Output per scored post is a binary undervaluation signal (post_scores.undervalued)
+Output per scored post is a binary signal — meaning depends on the prompt set
+(uv4 = undervaluation, sent1 = positive sentiment) — stored in the
+neutral post_scores.flagged column
 plus the tickers it applies to (defaulting to the topic's own stock, since the
 call returns only 0/1).
 
@@ -45,7 +47,7 @@ log = logging.getLogger(__name__)
 # spend completion tokens thinking before the single-digit answer.
 MAX_TOKENS = 2000
 
-_STAT_KEYS = ("scored", "undervalued", "error",
+_STAT_KEYS = ("scored", "flagged", "error",
               "input_tokens", "output_tokens", "cost_usd")
 
 # Post + its topic + BBCode-stripped text, ready for the LLM.
@@ -69,8 +71,8 @@ def unscored_posts(session: Session, settings: ScoringSettings,
         topic_ids = select(Topic.id).where(Topic.ticker_hint.in_(settings.tickers))
         q = q.where(Post.topic_id.in_(topic_ids))
     # Newest posts first: the momentum/dashboard views only surface the last
-    # few years, so scoring recent posts first makes their undervaluation
-    # colors show up right away instead of after the whole backlog is scored.
+    # few years, so scoring recent posts first makes their signal colors show
+    # up right away instead of after the whole backlog is scored.
     # (SQLite sorts NULL post_time last under DESC, so dated posts lead.)
     return list(session.scalars(q.order_by(Post.post_time.desc()).limit(batch)))
 
@@ -186,23 +188,23 @@ def _score_post(session: Session, settings: ScoringSettings,
         _add_usage_totals(stats, r)
         flag = parse_score(r.text)
         row.status = "scored"
-        row.undervalued = flag
-        # The call returns only 0/1, so an undervaluation signal lands on
-        # the topic's own stock (the rollup's usual fallback).
+        row.flagged = flag
+        # The call returns only 0/1, so a flag lands on the topic's own stock
+        # (the rollup's usual fallback).
         tickers = ([topic.ticker_hint]
                    if flag and topic and topic.ticker_hint else [])
         row.tickers_json = json.dumps(tickers, ensure_ascii=False)
         stats["scored"] += 1
         if flag:
-            stats["undervalued"] += 1
+            stats["flagged"] += 1
     except (LLMError, json.JSONDecodeError, ValueError) as exc:
         row.error = str(exc)[:1000]
         stats["error"] += 1
         log.warning("post %s failed: %s", post.id, exc)
     session.add(row)
     session.commit()
-    log.info("post %s -> %s (undervalued=%s, run total $%.4f)",
-             post.id, row.status, bool(row.undervalued), stats["cost_usd"])
+    log.info("post %s -> %s (flagged=%s, run total $%.4f)",
+             post.id, row.status, bool(row.flagged), stats["cost_usd"])
 
 
 def _new_row(settings: ScoringSettings, post: Post, status: str) -> PostScore:

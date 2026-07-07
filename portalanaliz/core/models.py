@@ -112,9 +112,10 @@ class PostScore(Base):
     # scored | error (skipped_short/skipped_keywords/chit_chat are legacy)
     status: Mapped[str] = mapped_column(String, index=True)
     is_analysis: Mapped[bool] = mapped_column(Boolean, default=False)
-    # The signal: does the post argue the stock is undervalued? (None = not scored)
-    undervalued: Mapped[bool | None] = mapped_column(Boolean, nullable=True, index=True)
-    # JSON list of ticker strings the undervaluation claim applies to.
+    # The binary signal (None = not scored). Meaning depends on the prompt set
+    # (uv4 = undervaluation, sent1 = positive sentiment); column name is neutral.
+    flagged: Mapped[bool | None] = mapped_column(Boolean, nullable=True, index=True)
+    # JSON list of ticker strings the flag applies to.
     tickers_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # short reason (PL)
     # Legacy columns from the quality-scoring era (prompt_version "v1") — kept
@@ -135,22 +136,32 @@ class PostScore(Base):
 
 
 class StockScore(Base):
-    """Per-ticker rollup: how many scored posts flag the stock as undervalued.
+    """Per-ticker rollup: how many scored posts the active config flagged.
 
-    One row per (ticker, as_of) where as_of anchors to the newest scored post
-    at rollup time — history accumulates as the archive/scoring grows.
+    One row per (ticker, as_of, config) where config = (prompt_version,
+    filter_model, extract_model) — same identity as post_scores, so rollups of
+    different prompts/models coexist instead of clobbering each other. as_of
+    anchors to the newest scored post at rollup time — history accumulates as
+    the archive/scoring grows.
     """
 
     __tablename__ = "stock_scores"
-    __table_args__ = (UniqueConstraint("ticker", "as_of"),)
+    __table_args__ = (
+        UniqueConstraint("ticker", "as_of", "prompt_version",
+                         "filter_model", "extract_model"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ticker: Mapped[str] = mapped_column(String, index=True)
     as_of: Mapped[date] = mapped_column(Date, index=True)
+    # Config identity of the rollup (mirrors post_scores).
+    prompt_version: Mapped[str] = mapped_column(String, index=True, default="")
+    filter_model: Mapped[str] = mapped_column(String, default="")
+    extract_model: Mapped[str] = mapped_column(String, default="")
     # Scored (LLM-judged) posts in this ticker's topics.
     posts_analyzed: Mapped[int] = mapped_column(Integer, default=0)
-    # Posts carrying an undervaluation signal for this ticker.
-    undervalued_posts: Mapped[int] = mapped_column(Integer, default=0)
+    # Posts the config flagged (signal=1) for this ticker.
+    flagged_posts: Mapped[int] = mapped_column(Integer, default=0)
     computed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 

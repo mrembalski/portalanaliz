@@ -85,19 +85,27 @@ def init_db() -> None:
             for (idx_name,) in named:
                 conn.exec_driver_sql(f'DROP INDEX "{idx_name}"')
 
-    # Additive/derived-table migrations for the undervalued-signal pivot.
+    # Additive/derived-table migrations for the neutral "flagged" signal.
     with engine.begin() as conn:
         cols = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info('post_scores')")}
-        if cols and "undervalued" not in cols:
-            conn.exec_driver_sql("ALTER TABLE post_scores ADD COLUMN undervalued BOOLEAN")
+        if cols and "flagged" not in cols:
+            if "undervalued" in cols:
+                # Rename in place — preserves the scored rows (renamed from the
+                # old undervaluation-specific column to a prompt-neutral name).
+                conn.exec_driver_sql("DROP INDEX IF EXISTS ix_post_scores_undervalued")
+                conn.exec_driver_sql(
+                    "ALTER TABLE post_scores RENAME COLUMN undervalued TO flagged")
+            else:
+                conn.exec_driver_sql("ALTER TABLE post_scores ADD COLUMN flagged BOOLEAN")
             # create_all skips existing tables, so add the index here.
             conn.exec_driver_sql(
-                "CREATE INDEX IF NOT EXISTS ix_post_scores_undervalued "
-                "ON post_scores (undervalued)")
+                "CREATE INDEX IF NOT EXISTS ix_post_scores_flagged "
+                "ON post_scores (flagged)")
         # stock_scores content is derived from post_scores — safe to rebuild
-        # when the schema changed (old shape had attention/sentiment columns).
+        # when the schema changed (renamed column + new config-identity columns).
+        # After this drop, rerun `scoring rollup` to repopulate per config.
         s_cols = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info('stock_scores')")}
-        if s_cols and "undervalued_posts" not in s_cols:
+        if s_cols and "flagged_posts" not in s_cols:
             conn.exec_driver_sql("DROP TABLE stock_scores")
 
     models.Base.metadata.create_all(engine)

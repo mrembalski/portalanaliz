@@ -8,15 +8,15 @@
 {% if configs %}
 <h2>By model / config</h2>
 <table>
-  <tr><th>Prompt</th><th>Filter model</th><th>Extract model</th><th>Undervalued</th><th>Analyzed</th><th>Share</th></tr>
+  <tr><th>Prompt</th><th>Filter model</th><th>Extract model</th><th>Flagged</th><th>Analyzed</th><th>Share</th></tr>
   {% for c in configs %}
   <tr>
     <td>{{ c.prompt_version }}{% if (c.prompt_version, c.filter_model, c.extract_model) == active_config %} <span class="badge">active</span>{% endif %}</td>
     <td>{{ c.filter_model }}</td>
     <td>{{ c.extract_model }}</td>
-    <td>{{ c.undervalued }}</td>
+    <td>{{ c.flagged }}</td>
     <td>{{ c.analyzed }}</td>
-    <td class="muted">{% if c.analyzed %}{{ "%.0f"|format(100 * c.undervalued / c.analyzed) }}%{% endif %}</td>
+    <td class="muted">{% if c.analyzed %}{{ "%.0f"|format(100 * c.flagged / c.analyzed) }}%{% endif %}</td>
   </tr>
   {% endfor %}
 </table>
@@ -26,26 +26,26 @@
 {% if history %}
 <h2>Signal history</h2>
 <table>
-  <tr><th>As of</th><th>Undervalued posts</th><th>Posts analyzed</th><th>Share</th></tr>
+  <tr><th>As of</th><th>Flagged posts</th><th>Posts analyzed</th><th>Share</th></tr>
   {% for s in history %}
   <tr>
     <td>{{ s.as_of }}</td>
-    <td>{{ s.undervalued_posts }}</td>
+    <td>{{ s.flagged_posts }}</td>
     <td>{{ s.posts_analyzed }}</td>
-    <td class="muted">{% if s.posts_analyzed %}{{ "%.0f"|format(100 * s.undervalued_posts / s.posts_analyzed) }}%{% else %}—{% endif %}</td>
+    <td class="muted">{% if s.posts_analyzed %}{{ "%.0f"|format(100 * s.flagged_posts / s.posts_analyzed) }}%{% else %}—{% endif %}</td>
   </tr>
   {% endfor %}
 </table>
 {% endif %}
 
-<h2>Posts flagging undervaluation</h2>
+<h2>Flagged posts</h2>
 {% if other_config %}<p class="muted">Active config has no flags for this ticker — showing results from other configs (see table above).</p>{% endif %}
 {% if best %}
 {% for b in best %}
 <div class="post uv">
   <div class="post-head">
     <span class="author">{{ b.post.author_name }}</span>
-    <span class="badge">💰 undervalued</span>
+    <span class="badge">💰 flagged</span>
     <span class="pos">
       <a href="/topics/{{ b.post.topic_id }}?page={{ (b.post.position // 50) + 1 }}#p{{ b.post.position }}">
         {{ topic_map.get(b.post.topic_id).title if topic_map.get(b.post.topic_id) else b.post.topic_id }}</a>
@@ -57,6 +57,6 @@
 </div>
 {% endfor %}
 {% else %}
-<p class="muted">No undervaluation signals for this ticker yet.</p>
+<p class="muted">No flagged posts for this ticker yet.</p>
 {% endif %}
 {% endblock %}

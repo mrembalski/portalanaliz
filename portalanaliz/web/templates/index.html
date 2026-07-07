@@ -9,14 +9,14 @@
   <div class="card"><div class="num">{{ stats.authors }}</div><div class="muted">authors</div></div>
 </div>
 <p class="muted">Last fetch: {{ stats.last_fetch or 'never' }} ·
-Scoring: {{ scoring.undervalued }} undervalued / {{ scoring.scored }} analyzed /
+Scoring: {{ scoring.flagged }} flagged / {{ scoring.scored }} analyzed /
 {{ scoring.processed }} processed (${{ "%.4f"|format(scoring.cost) }} spent)</p>
 
 {% if hot %}
 <h2>Heating up <a class="muted" style="font-size:13px" href="/momentum{% if config_key %}?config={{ config_key|urlencode }}{% endif %}">(full momentum view →)</a></h2>
 {% if configs %}
 <form method="get" action="/" style="margin:-4px 0 10px">
-  <label class="muted" style="font-size:13px">Undervaluation colored by
+  <label class="muted" style="font-size:13px">Signal colored by
     <select name="config" onchange="this.form.submit()">
       <option value="">active config{% if not config_key %} · {{ configs|selectattr('is_active')|map(attribute='label')|first|default('—') }}{% endif %}</option>
       {% for c in configs %}
@@ -27,7 +27,7 @@ Scoring: {{ scoring.undervalued }} undervalued / {{ scoring.scored }} analyzed /
 </form>
 {% endif %}
 <table>
-  <tr><th>Ticker</th><th>Discussion level</th><th>Heat</th><th>Undervalued (12m)</th></tr>
+  <tr><th>Ticker</th><th>Discussion level</th><th>Heat</th><th>Flagged (12m)</th></tr>
   {% for r in hot %}
   <tr>
     <td><a href="/stocks/{{ r.ticker }}"><span class="badge">{{ r.ticker }}</span></a></td>
@@ -43,15 +43,15 @@ Scoring: {{ scoring.undervalued }} undervalued / {{ scoring.scored }} analyzed /
 {% endif %}
 
 {% if top_stocks %}
-<h2>Top undervaluation signals</h2>
+<h2>Top signals</h2>
 <table>
-  <tr><th>Ticker</th><th>Undervalued posts</th><th>Posts analyzed</th><th>Share</th></tr>
+  <tr><th>Ticker</th><th>Flagged posts</th><th>Posts analyzed</th><th>Share</th></tr>
   {% for s in top_stocks %}
   <tr>
     <td><a href="/stocks/{{ s.ticker }}"><span class="badge">{{ s.ticker }}</span></a></td>
-    <td>{{ s.undervalued_posts }}</td>
+    <td>{{ s.flagged_posts }}</td>
     <td>{{ s.posts_analyzed }}</td>
-    <td class="muted">{% if s.posts_analyzed %}{{ "%.0f"|format(100 * s.undervalued_posts / s.posts_analyzed) }}%{% else %}—{% endif %}</td>
+    <td class="muted">{% if s.posts_analyzed %}{{ "%.0f"|format(100 * s.flagged_posts / s.posts_analyzed) }}%{% else %}—{% endif %}</td>
   </tr>
   {% endfor %}
 </table>

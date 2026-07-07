@@ -77,8 +77,8 @@ def print_stats(session, settings: ScoringSettings) -> None:
             .where(PostScore.prompt_version == version,
                    PostScore.filter_model == fmodel,
                    PostScore.extract_model == emodel,
-                   PostScore.undervalued.is_(True))) or 0
-        print(f"  undervalued       : {uv}")
+                   PostScore.flagged.is_(True))) or 0
+        print(f"  flagged           : {uv}")
         print(f"  tokens            : {inp or 0} in / {out or 0} out")
         print(f"  cost              : ${cost or 0:.4f}"
               + (f" (${(cost or 0) / n:.5f}/post)" if n else ""))

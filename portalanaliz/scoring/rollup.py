@@ -1,12 +1,13 @@
-"""Per-ticker rollup: count undervaluation signals into stock_scores rows.
+"""Per-ticker rollup: count flagged signals into stock_scores rows.
 
 For each ticker:
-- posts_analyzed    — scored (LLM-judged) posts in that ticker's topics
-- undervalued_posts — posts whose undervaluation signal names the ticker
+- posts_analyzed — scored (LLM-judged) posts in that ticker's topics
+- flagged_posts  — posts whose signal (1) names the ticker
 
-One row per (ticker, as_of) where as_of anchors to the newest scored post at
-rollup time; rerunning at the same anchor overwrites, and new archive data
-moves the anchor forward, building history the dashboard can chart.
+One row per (ticker, as_of, config) where config = the active
+(prompt, filter, extract) triple and as_of anchors to the newest scored post at
+rollup time; rerunning the same config at the same anchor overwrites, and new
+archive data moves the anchor forward, building history the dashboard can chart.
 """
 
 from __future__ import annotations
@@ -26,8 +27,8 @@ log = logging.getLogger(__name__)
 
 def compute_stock_scores(session: Session, settings: ScoringSettings,
                          as_of: date | None = None) -> int:
-    """Rollup over the ACTIVE config's scored rows only (stock_scores rows are
-    overwritten per (ticker, date) — the table reflects the last config rolled up)."""
+    """Rollup over the ACTIVE config's scored rows into stock_scores rows keyed
+    by (ticker, date, config), so each config keeps its own rollup history."""
     scoped = (PostScore.prompt_version == settings.prompt,
               PostScore.filter_model == "",
               PostScore.extract_model == settings.model,
@@ -51,24 +52,30 @@ def compute_stock_scores(session: Session, settings: ScoringSettings,
         .group_by(Topic.ticker_hint)
     ).all())
 
-    # Numerator: undervaluation signals per ticker named in tickers_json.
-    undervalued: dict[str, int] = {}
+    # Numerator: flagged signals per ticker named in tickers_json.
+    flagged: dict[str, int] = {}
     rows = session.scalars(
-        select(PostScore.tickers_json).where(*scoped, PostScore.undervalued.is_(True))
+        select(PostScore.tickers_json).where(*scoped, PostScore.flagged.is_(True))
     ).all()
     for tickers_json in rows:
         for ticker in json.loads(tickers_json or "[]"):
-            undervalued[ticker] = undervalued.get(ticker, 0) + 1
+            flagged[ticker] = flagged.get(ticker, 0) + 1
 
-    for ticker in set(analyzed) | set(undervalued):
+    for ticker in set(analyzed) | set(flagged):
         existing = session.scalars(
-            select(StockScore).where(StockScore.ticker == ticker, StockScore.as_of == as_of)
+            select(StockScore).where(
+                StockScore.ticker == ticker, StockScore.as_of == as_of,
+                StockScore.prompt_version == settings.prompt,
+                StockScore.filter_model == "",
+                StockScore.extract_model == settings.model)
         ).first()
-        row = existing or StockScore(ticker=ticker, as_of=as_of)
+        row = existing or StockScore(
+            ticker=ticker, as_of=as_of, prompt_version=settings.prompt,
+            filter_model="", extract_model=settings.model)
         row.posts_analyzed = analyzed.get(ticker, 0)
-        row.undervalued_posts = undervalued.get(ticker, 0)
+        row.flagged_posts = flagged.get(ticker, 0)
         session.add(row)
     session.commit()
-    n = len(set(analyzed) | set(undervalued))
+    n = len(set(analyzed) | set(flagged))
     log.info("stock rollup: %d tickers as of %s", n, as_of)
     return n

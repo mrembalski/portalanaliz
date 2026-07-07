@@ -1,18 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Stocks{% endblock %}
 {% block content %}
-<h1>Undervaluation signals</h1>
-<p class="muted">Undervalued = posts where the author argues the stock trades below
-its value. Analyzed = LLM-judged posts in the ticker's topics. Latest rollup per ticker.</p>
+<h1>Signals</h1>
+<p class="muted">Flagged = posts the active config's prompt marked 1 (uv4:
+author argues undervaluation; sent1: clearly positive about the company).
+Analyzed = LLM-judged posts in the ticker's topics. Latest rollup per ticker.</p>
 {% if rows %}
 <table>
-  <tr><th>Ticker</th><th>Undervalued posts</th><th>Posts analyzed</th><th>Share</th><th>As of</th></tr>
+  <tr><th>Ticker</th><th>Flagged posts</th><th>Posts analyzed</th><th>Share</th><th>As of</th></tr>
   {% for s in rows %}
   <tr>
     <td><a href="/stocks/{{ s.ticker }}"><span class="badge">{{ s.ticker }}</span></a></td>
-    <td>{{ s.undervalued_posts }}</td>
+    <td>{{ s.flagged_posts }}</td>
     <td>{{ s.posts_analyzed }}</td>
-    <td class="muted">{% if s.posts_analyzed %}{{ "%.0f"|format(100 * s.undervalued_posts / s.posts_analyzed) }}%{% else %}—{% endif %}</td>
+    <td class="muted">{% if s.posts_analyzed %}{{ "%.0f"|format(100 * s.flagged_posts / s.posts_analyzed) }}%{% else %}—{% endif %}</td>
     <td class="muted">{{ s.as_of }}</td>
   </tr>
   {% endfor %}

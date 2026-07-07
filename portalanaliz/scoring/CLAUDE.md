@@ -1,17 +1,21 @@
 # Scoring module notes
 
-Goal: binary UNDERVALUATION SIGNAL per post — not company scoring. Pipeline per
-post: ONE LLM undervaluation call (`undervalued` 0/1) -> per-ticker rollup
-counting undervalued posts vs posts analyzed into `stock_scores`. The old free
-prefilter (length/keywords) is gone — every post goes to the LLM, in full
-(no truncation).
+Goal: binary SIGNAL per post — not company scoring. The signal's MEANING is set
+by the active prompt set (`uv4` = undervaluation, `sent1` = positive sentiment);
+the pipeline itself is prompt-agnostic. Pipeline per post: ONE LLM call
+(`flagged` column, 0/1 — prompt-neutral, holds whatever the prompt flags) ->
+per-ticker rollup counting flagged posts vs posts analyzed into `stock_scores`.
+The old free prefilter (length/keywords) is gone — every post goes to the LLM,
+in full (no truncation).
 
 There is a SINGLE LLM stage. The old two-stage "relevance filter -> extract"
 design is gone: chit-chat just scores 0, decided by the same call. Each post
 gets its own call (batching removed): the model receives one post and answers
 with a bare digit `0` or `1`. The call returns only the binary signal, so the
-undervaluation signal lands on the topic's own `ticker_hint` (no per-post
-ticker/reason extraction anymore).
+flag lands on the topic's own `ticker_hint` (no per-post ticker/reason
+extraction anymore). Code, stats, and UI use neutral "flagged" wording; only
+the `uv4`-specific prompt text still says "undervalued". DB columns are neutral:
+`post_scores.flagged`, `stock_scores.flagged_posts`.
 
 ## Invariants
 
@@ -67,10 +71,13 @@ ticker/reason extraction anymore).
 - Cost is logged per post (`post_scores.cost_usd`); local models log $0.
   Anthropic prices live in `llm.py:ANTHROPIC_PRICING` (USD/MTok, sticker).
 - Rollup counts: `posts_analyzed` = scored posts in the ticker's topics
-  (denominator via `topic.ticker_hint`); `undervalued_posts` = posts whose
-  signal names the ticker (`tickers_json`, which under the current pipeline is
-  the topic's hint). `as_of` anchors to the newest scored post; rows upserted
-  per (ticker, as_of-date), keeping history for charts.
+  (denominator via `topic.ticker_hint`); `flagged_posts` = posts whose signal
+  names the ticker (`tickers_json`, which under the current pipeline is the
+  topic's hint). `as_of` anchors to the newest scored post. `stock_scores`
+  carries the config identity (prompt_version, filter_model, extract_model), so
+  each config keeps its own history; rows upserted per (ticker, as_of-date,
+  config). The web UI reads only the active config's rows — after switching
+  configs, run `scoring rollup --prompt <p> --model <m>` to populate that one.
 - `post_scores.is_analysis/quality/direction/claims_json/summary` are dead
   columns from the pre-pivot (`v1`) and two-stage eras — the current pipeline
   never writes them, and all rows that used them have been deleted. Kept in the
@@ -93,4 +100,4 @@ breakdown and marks the active one; `prompts` lists prompt sets and origin.
   no digit = error row (rescore with `--rerun error`).
 - Reasoning models (qwen3+, deepseek-r1) burn completion tokens on thinking
   before the digit — `MAX_TOKENS` (=2000) leaves headroom.
-- `tickers_json` is `[topic.ticker_hint]` for an undervalued post, else `[]`.
+- `tickers_json` is `[topic.ticker_hint]` for a flagged post, else `[]`.

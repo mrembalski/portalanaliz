@@ -4,7 +4,7 @@
 <h1>Discussion momentum</h1>
 <p class="muted">Line = rolling 12-month post count (discussion level); the dashed line
 marks the window's average, so a line above it means above-normal activity. Color =
-share of that month's analyzed posts calling the stock undervalued:
+share of that month's analyzed posts the ticked config(s) flagged 1:
 <span style="color:#d1d5db">■ no data</span>
 <span style="color:#64748b">■ 0%</span>
 <span style="color:#3d8b6a">■ 50%</span>
@@ -13,8 +13,8 @@ Heat = latest level ÷ window average. Click a column header to sort.</p>
 
 <form method="get" action="/momentum" style="margin:0 0 12px">
   {% if configs %}
-  <div class="muted" style="font-size:13px;margin-bottom:6px">Undervaluation colored by — tick one or more (combined with binary OR: a post
-    counts as undervalued if <em>any</em> ticked config flags it)</div>
+  <div class="muted" style="font-size:13px;margin-bottom:6px">Signal colored by — tick one or more (combined with binary OR: a post
+    counts as flagged if <em>any</em> ticked config flags it)</div>
   <div style="display:flex;flex-direction:column;gap:4px;font-size:13px">
     {% for c in configs %}
     <label><input type="checkbox" name="config" value="{{ c.key }}"{% if c.key in config_keys %} checked{% endif %}>
@@ -36,7 +36,7 @@ Heat = latest level ÷ window average. Click a column header to sort.</p>
   {% macro sort_th(key, label) -%}
   <th>{% if sort == key %}{{ label }} ▾{% else %}<a href="/momentum?sort={{ key }}&amp;min_recent={{ min_recent }}{% for k in config_keys %}&amp;config={{ k }}{% endfor %}">{{ label }}</a>{% endif %}</th>
   {%- endmacro %}
-  <tr>{{ sort_th("ticker", "Ticker") }}<th>Discussion level (12m rolling, 5y)</th>{{ sort_th("heat", "Heat") }}{{ sort_th("posts", "Posts (12m)") }}{{ sort_th("uv", "Undervalued (12m)") }}</tr>
+  <tr>{{ sort_th("ticker", "Ticker") }}<th>Discussion level (12m rolling, 5y)</th>{{ sort_th("heat", "Heat") }}{{ sort_th("posts", "Posts (12m)") }}{{ sort_th("uv", "Flagged (12m)") }}</tr>
   {% for r in rows %}
   <tr>
     <td><a href="/stocks/{{ r.ticker }}"><span class="badge">{{ r.ticker }}</span></a></td>

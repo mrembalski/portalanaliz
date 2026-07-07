@@ -31,6 +31,13 @@ def _scoped_scores():
             PostScore.filter_model == "",
             PostScore.extract_model == SCORING.model)
 
+
+def _scoped_stock():
+    # Same active-config identity, on the stock_scores rollup table.
+    return (StockScore.prompt_version == SCORING.prompt,
+            StockScore.filter_model == "",
+            StockScore.extract_model == SCORING.model)
+
 app = FastAPI(title="PortalAnaliz Archive")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["fromjson"] = json.loads
@@ -73,9 +80,9 @@ def index(request: Request, config: str = "", session: Session = Depends(db)):
             select(Topic).where(Topic.id.in_({p.topic_id for p in recent}))).all()
     }
     scoring = {
-        "undervalued": session.scalar(select(func.count(PostScore.id))
-                                      .where(*_scoped_scores(),
-                                             PostScore.undervalued.is_(True))) or 0,
+        "flagged": session.scalar(select(func.count(PostScore.id))
+                                  .where(*_scoped_scores(),
+                                         PostScore.flagged.is_(True))) or 0,
         "scored": session.scalar(select(func.count(PostScore.id))
                                  .where(*_scoped_scores(),
                                         PostScore.status == "scored")) or 0,
@@ -96,16 +103,18 @@ def index(request: Request, config: str = "", session: Session = Depends(db)):
 
 
 def _latest_stock_scores(session: Session, limit: int | None = None) -> list[StockScore]:
-    """Most recent stock_scores row per ticker, most undervaluation signals first."""
+    """Most recent stock_scores row per ticker (active config), most flags first."""
     latest = (
         select(StockScore.ticker, func.max(StockScore.as_of).label("as_of"))
+        .where(*_scoped_stock())
         .group_by(StockScore.ticker).subquery()
     )
     q = (
         select(StockScore)
         .join(latest, (StockScore.ticker == latest.c.ticker)
               & (StockScore.as_of == latest.c.as_of))
-        .order_by(StockScore.undervalued_posts.desc(),
+        .where(*_scoped_stock())
+        .order_by(StockScore.flagged_posts.desc(),
                   StockScore.posts_analyzed.desc())
     )
     if limit:
@@ -170,9 +179,9 @@ def _momentum_rows(session: Session, window: int = 12, span: int = 60,
                    configs: list[tuple[str, str, str]] | None = None) -> list[dict]:
     """Per ticker: the rolling {window}-month post count as sparkline segments
     (the discussion *level*, not its derivative), colored by the share of that
-    month's scored posts flagging undervaluation. A dashed reference line marks
+    month's scored posts the config flagged. A dashed reference line marks
     the window's average level; `heat` = latest level / that average (>1 = above
-    normal). Coloring uses `configs` when given (a post counts as undervalued if
+    normal). Coloring uses `configs` when given (a post counts as flagged if
     ANY of the picked configs flags it — binary OR), else the active config, else
     the config with the most scored rows for the ticker."""
     counts = session.execute(
@@ -193,12 +202,12 @@ def _momentum_rows(session: Session, window: int = 12, span: int = 60,
         select(Topic.ticker_hint, func.strftime("%Y-%m", Post.post_time),
                PostScore.prompt_version, PostScore.filter_model,
                PostScore.extract_model, PostScore.post_id,
-               PostScore.undervalued, PostScore.tickers_json)
+               PostScore.flagged, PostScore.tickers_json)
         .join(Post, Post.id == PostScore.post_id)
         .join(Topic, Topic.id == Post.topic_id)
         .where(PostScore.status == "scored", Topic.ticker_hint.is_not(None))
     ).all()
-    # ticker -> config -> month -> {post_id: undervalued_flag} — keep per-post
+    # ticker -> config -> month -> {post_id: flag} — keep per-post
     # identity so multiple configs can be OR-ed at the post level.
     uv_raw: dict[str, dict[tuple, dict[str, dict[int, bool]]]] = {}
     for ticker, month, pv, fm, em, pid, uv, tj in scored:
@@ -229,7 +238,7 @@ def _momentum_rows(session: Session, window: int = 12, span: int = 60,
         cfgmap = uv_raw.get(ticker, {})
         if configs is not None:
             # Explicit pick: OR the picked configs at the post level (a post is
-            # undervalued if any of them flagged it); no cross-config fallback.
+            # flagged if any of them flagged it); no cross-config fallback.
             chosen: dict[str, dict[int, bool]] = {}
             for c in configs:
                 for m, posts in cfgmap.get(c, {}).items():
@@ -309,16 +318,16 @@ def stocks(request: Request, session: Session = Depends(db)):
 def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
     ticker = ticker.upper()
     history = session.scalars(
-        select(StockScore).where(StockScore.ticker == ticker)
+        select(StockScore).where(StockScore.ticker == ticker, *_scoped_stock())
         .order_by(StockScore.as_of.desc()).limit(60)
     ).all()
-    # Posts flagging this ticker as undervalued, newest first. Prefer the
-    # active config; if it has nothing (e.g. only another model scored this
-    # ticker), fall back to all configs deduped by post.
+    # Posts the config flagged for this ticker, newest first. Prefer the active
+    # config; if it has nothing (e.g. only another model scored this ticker),
+    # fall back to all configs deduped by post.
     def _flagged(scoped: bool):
         q = (select(PostScore, Post)
              .join(Post, Post.id == PostScore.post_id)
-             .where(PostScore.undervalued.is_(True),
+             .where(PostScore.flagged.is_(True),
                     PostScore.tickers_json.like(f'%"{ticker}"%'))
              .order_by(Post.post_time.desc()).limit(200))
         if scoped:
@@ -347,14 +356,14 @@ def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
         select(Topic).where(Topic.ticker_hint == ticker)).all()
     # Every config that judged posts in this ticker's topics — model comparison.
     flagged = case(
-        (PostScore.undervalued.is_(True)
+        (PostScore.flagged.is_(True)
          & PostScore.tickers_json.like(f'%"{ticker}"%'), 1),
         else_=0)
     configs = session.execute(
         select(PostScore.prompt_version, PostScore.filter_model,
                PostScore.extract_model,
                func.count(PostScore.id).label("analyzed"),
-               func.sum(flagged).label("undervalued"))
+               func.sum(flagged).label("flagged"))
         .join(Post, Post.id == PostScore.post_id)
         .join(Topic, Topic.id == Post.topic_id)
         .where(Topic.ticker_hint == ticker, PostScore.status == "scored")
@@ -428,10 +437,10 @@ def topic_view(topic_id: str, request: Request, page: int = Query(1, ge=1),
         select(Post).where(Post.topic_id == topic_id).order_by(Post.position)
         .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)
     ).all()
-    # Posts the LLM flagged as undervalued under the active config — tinted green.
+    # Posts the LLM flagged under the active config — tinted green.
     uv_ids = set(session.scalars(
         select(PostScore.post_id).where(
-            *_scoped_scores(), PostScore.undervalued.is_(True),
+            *_scoped_scores(), PostScore.flagged.is_(True),
             PostScore.post_id.in_([p.id for p in posts]))
     ).all()) if posts else set()
     items = _render_posts(session, posts)

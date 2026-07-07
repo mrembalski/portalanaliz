@@ -14,7 +14,7 @@ class RateLimiter:
     talks to the forum (API calls and media downloads alike).
     """
 
-    def __init__(self, min_interval: float = 2.5, jitter: float = 0.75) -> None:
+    def __init__(self, min_interval: float = 1.0, jitter: float = 0.75) -> None:
         self.min_interval = min_interval
         self.jitter = jitter
         self._lock = threading.Lock()

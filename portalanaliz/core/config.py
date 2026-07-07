@@ -16,7 +16,7 @@ class Settings:
     password: str
     tapatalk_url: str = DEFAULT_TAPATALK_URL
     # Politeness: minimum seconds between outgoing requests (jitter added on top).
-    min_request_interval: float = 2.5
+    min_request_interval: float = 1.0
     request_timeout: float = 30.0
     # Global focus list (FOCUS_TICKERS="SNT,VOT"): post sync and scoring only
     # touch topics whose ticker_hint is in the list. Empty = everything.
@@ -77,7 +77,7 @@ def load_settings() -> Settings:
         login=login,
         password=password,
         tapatalk_url=os.environ.get("TAPATALK_URL", DEFAULT_TAPATALK_URL),
-        min_request_interval=float(os.environ.get("MIN_REQUEST_INTERVAL", "2.5")),
+        min_request_interval=float(os.environ.get("MIN_REQUEST_INTERVAL", "1.0")),
         request_timeout=float(os.environ.get("REQUEST_TIMEOUT", "30")),
         focus_tickers=_parse_tickers(os.environ.get("FOCUS_TICKERS", "")),
     )

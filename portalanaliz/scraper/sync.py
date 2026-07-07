@@ -117,12 +117,16 @@ def _upsert_topic(session: Session, forum_id: str, t: dict, sticky: bool) -> Non
 # -------------------------------------------------------------------- posts
 
 def sync_posts(client: TapatalkClient, session: Session, forum_id: str | None = None,
-               tickers: tuple[str, ...] = ()) -> None:
+               tickers: tuple[str, ...] = (), max_posts: int | None = None) -> None:
     """Fetch missing posts for every topic whose cursor lags its post count.
 
     tickers (FOCUS_TICKERS) narrows the topic selection only — cursor and
     budget behavior are unchanged, so widening the list later just makes more
     topics eligible.
+
+    max_posts (exclusive) restricts to smaller threads: only topics whose
+    expected post count is < max_posts are fetched. Lets a run prioritise
+    finishing the many small topics before the few giant ones.
     """
     q = select(Topic)
     if forum_id:
@@ -133,7 +137,13 @@ def sync_posts(client: TapatalkClient, session: Session, forum_id: str | None = 
     topics = session.scalars(q).all()
 
     # Expected post count: reply_number + 1 (first post isn't a "reply").
-    todo = [t for t in topics if t.posts_fetched < (t.total_post_num or t.reply_number + 1)]
+    def _expected(t: Topic) -> int:
+        return t.total_post_num or t.reply_number + 1
+
+    if max_posts is not None:
+        topics = [t for t in topics if _expected(t) < max_posts]
+        log.info("posts sync limited to topics with < %d posts", max_posts)
+    todo = [t for t in topics if t.posts_fetched < _expected(t)]
     # Finish partially-fetched topics first, then oldest-synced, so budgeted
     # runs don't leave threads half-archived.
     todo.sort(key=lambda t: (t.posts_fetched == 0, t.last_synced_at or datetime.min, t.id))
@@ -205,6 +215,9 @@ def main() -> None:
     parser.add_argument("--forum-id", help="restrict to one forum")
     parser.add_argument("--budget", type=int, default=None,
                         help="max outgoing API requests this run")
+    parser.add_argument("--max-posts", type=int, default=None,
+                        help="only fetch topics with fewer than N posts "
+                             "(prioritise small threads)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -223,7 +236,8 @@ def main() -> None:
                 sync_topics(client, session, forum_id=args.forum_id)
             if args.command in ("posts", "all"):
                 sync_posts(client, session, forum_id=args.forum_id,
-                           tickers=settings.focus_tickers)
+                           tickers=settings.focus_tickers,
+                           max_posts=args.max_posts)
         except RequestBudgetExceeded as exc:
             session.commit()
             log.info("stopping: %s (progress saved, rerun to continue)", exc)

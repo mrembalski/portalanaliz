@@ -52,9 +52,8 @@
       · {{ b.post.post_time }}
     </span>
   </div>
-  <div class="post-body">
-    {% if b.score.summary %}<em>{{ b.score.summary }}</em>{% else %}<span class="muted">(no reason recorded)</span>{% endif %}
-  </div>
+  {% if b.score.summary %}<div class="post-body"><em>{{ b.score.summary }}</em></div>{% endif %}
+  <div class="post-body">{{ b.html | safe }}</div>
 </div>
 {% endfor %}
 {% else %}

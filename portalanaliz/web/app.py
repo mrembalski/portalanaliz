@@ -297,7 +297,8 @@ def stock_view(ticker: str, request: Request, session: Session = Depends(db)):
             if post.id in seen:
                 continue
             seen.add(post.id)
-            rows.append({"score": score, "post": post})
+            rows.append({"score": score, "post": post,
+                         "html": render_bbcode(post.content)})
         return rows
 
     best = _flagged(scoped=True)

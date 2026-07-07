@@ -11,8 +11,8 @@ share of that month's analyzed posts calling the stock undervalued:
 <span style="color:#16a34a">■ 100%</span>.
 Heat = latest level ÷ window average. Click a column header to sort.</p>
 
-{% if configs %}
 <form method="get" action="/momentum" style="margin:0 0 12px">
+  {% if configs %}
   <div class="muted" style="font-size:13px;margin-bottom:6px">Undervaluation colored by — tick one or more (combined with binary OR: a post
     counts as undervalued if <em>any</em> ticked config flags it)</div>
   <div style="display:flex;flex-direction:column;gap:4px;font-size:13px">
@@ -21,18 +21,20 @@ Heat = latest level ÷ window average. Click a column header to sort.</p>
       {{ c.label }} <span class="muted">({{ c.scored }} scored){% if c.is_active %} · active{% endif %}</span></label>
     {% endfor %}
   </div>
+  {% endif %}
   <input type="hidden" name="sort" value="{{ sort }}">
-  <div style="margin-top:8px">
-    <button type="submit">Apply</button>
-    {% if config_keys %}<a href="/momentum" class="muted" style="margin-left:10px">reset to active config</a>{% endif %}
+  <div style="margin-top:8px;font-size:13px">
+    <label>Min posts (12m): <input type="number" name="min_recent" min="0"
+      value="{{ min_recent or '' }}" placeholder="0" style="width:60px"></label>
+    <button type="submit" style="margin-left:10px">Apply</button>
+    {% if config_keys or min_recent %}<a href="/momentum" class="muted" style="margin-left:10px">reset</a>{% endif %}
   </div>
 </form>
-{% endif %}
 
 {% if rows %}
 <table>
   {% macro sort_th(key, label) -%}
-  <th>{% if sort == key %}{{ label }} ▾{% else %}<a href="/momentum?sort={{ key }}{% for k in config_keys %}&amp;config={{ k }}{% endfor %}">{{ label }}</a>{% endif %}</th>
+  <th>{% if sort == key %}{{ label }} ▾{% else %}<a href="/momentum?sort={{ key }}{% if min_recent %}&amp;min_recent={{ min_recent }}{% endif %}{% for k in config_keys %}&amp;config={{ k }}{% endfor %}">{{ label }}</a>{% endif %}</th>
   {%- endmacro %}
   <tr>{{ sort_th("ticker", "Ticker") }}<th>Discussion level (12m rolling, 5y)</th>{{ sort_th("heat", "Heat") }}{{ sort_th("posts", "Posts (12m)") }}{{ sort_th("uv", "Undervalued (12m)") }}</tr>
   {% for r in rows %}

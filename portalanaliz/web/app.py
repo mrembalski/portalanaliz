@@ -285,12 +285,15 @@ MOMENTUM_SORTS = {
 
 @app.get("/momentum")
 def momentum(request: Request, config: list[str] = Query(default=[]),
-             sort: str = "heat", session: Session = Depends(db)):
+             sort: str = "heat", min_recent: int = 0,
+             session: Session = Depends(db)):
     sort = sort if sort in MOMENTUM_SORTS else "heat"
     rows = _momentum_rows(session, configs=_resolve_configs(config))
+    if min_recent > 0:
+        rows = [r for r in rows if r["posts_window"] >= min_recent]
     rows.sort(key=MOMENTUM_SORTS[sort], reverse=sort != "ticker")
     return templates.TemplateResponse(request, "momentum.html", {
-        "rows": rows, "sort": sort,
+        "rows": rows, "sort": sort, "min_recent": min_recent,
         "configs": _scoring_configs(session), "config_keys": config,
     })
 

@@ -61,6 +61,7 @@ Remember to use `.venv/bin/python` instead of `python`.
 .venv/bin/python -m portalanaliz.scoring stats                                # scoring progress + cost
 .venv/bin/python -m portalanaliz.scoring prompts                              # list prompt sets
 .venv/bin/python -m portalanaliz.scoring score --rerun all                    # fresh pass of active config
+.venv/bin/python -m portalanaliz.scraper.backfill_tickers                     # GPW name->ticker_hint backfill (dry run; --apply)
 ```
 
 Sync subcommands: `forums | topics | posts | all`. Forum 3 = GPW stocks (main target).

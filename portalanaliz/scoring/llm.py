@@ -8,6 +8,8 @@ Ollama tags with colons work) or "claude:opus". Providers:
 - local     — any OpenAI-compatible chat-completions endpoint (Ollama, ...)
 - claude    — the local `claude` CLI in headless mode: burns the user's
               Claude subscription quota instead of API credits.
+- codex     — the local `codex exec` CLI (OpenAI GPT-5.x), read-only sandbox.
+              No per-call token usage exposed, so cost is logged as $0.
 """
 
 from __future__ import annotations
@@ -182,6 +184,42 @@ class ClaudeCLIClient(LLMClient):
         )
 
 
+class CodexCLIClient(LLMClient):
+    """Headless `codex exec` — one subprocess per call (OpenAI GPT-5.x).
+
+    Codex has no separate system role, so system+user are concatenated. Runs
+    read-only, ephemeral (no session files), with the final message written to
+    a temp file via -o. Token usage isn't exposed on stdout, so cost is $0."""
+
+    def __init__(self, spec: str, model: str):
+        super().__init__(spec)
+        if shutil.which("codex") is None:
+            raise LLMError("`codex` CLI not found on PATH (needed for codex:* models)")
+        self.model = model
+
+    def complete(self, system: str, user: str, max_tokens: int = 1024) -> LLMResponse:
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("r", suffix=".txt", delete=False) as f:
+            out_path = f.name
+        try:
+            proc = subprocess.run(
+                ["codex", "exec", "-m", self.model, "-s", "read-only",
+                 "--skip-git-repo-check", "--ephemeral", "-o", out_path,
+                 f"{system}\n\n{user}"],
+                capture_output=True, text=True, timeout=600,
+            )
+            if proc.returncode != 0:
+                raise LLMError(f"codex CLI exit {proc.returncode}: "
+                               f"{(proc.stderr or proc.stdout)[:300]}")
+            with open(out_path) as fh:
+                text = fh.read()
+        finally:
+            os.unlink(out_path)
+        return LLMResponse(text=text, model=self.spec, input_tokens=0,
+                           output_tokens=0, cost_usd=0.0)
+
+
 def make_client(spec: str, settings: ScoringSettings) -> LLMClient:
     provider, _, model = spec.partition(":")
     if not model:
@@ -192,8 +230,10 @@ def make_client(spec: str, settings: ScoringSettings) -> LLMClient:
         return OpenAICompatClient(spec, model, settings.local_base_url, settings.local_api_key)
     if provider == "claude":
         return ClaudeCLIClient(spec, model)
+    if provider == "codex":
+        return CodexCLIClient(spec, model)
     raise LLMError(f"unknown provider {provider!r} in {spec!r} "
-                   "(use anthropic:, local: or claude:)")
+                   "(use anthropic:, local:, claude: or codex:)")
 
 
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)

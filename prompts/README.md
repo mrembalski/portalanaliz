@@ -1,12 +1,12 @@
 # Custom prompt sets
 
 Drop `<name>.prompt` files here and select them with `--prompt <name>` or
-`SCORING_PROMPT=<name>` — no code changes needed. The built-in set (`uv3`)
+`SCORING_PROMPT=<name>` — no code changes needed. The built-in set (`uv4`)
 lives in `portalanaliz/scoring/prompts.py`; files here may NOT shadow it.
 
 Format — one required `[scoring]` section, plain text (Polish recommended, the
 forum is Polish). Write only the CRITERIA (the yes/no question and what counts
-/ doesn't count); the batch framing and the JSON-array output contract are
+/ doesn't count); the single-post framing and the bare 0/1 output contract are
 added automatically, so don't restate the output format.
 
 ```

@@ -35,14 +35,14 @@ class ScoringSettings:
     - local    — any OpenAI-compatible server (Ollama, LM Studio, vLLM)
                  at LOCAL_LLM_BASE_URL
 
-    Scoring is a single LLM call per batch of posts (no separate relevance
+    Scoring is a single LLM call per post (no separate relevance
     filter). `model` is stored as post_scores.extract_model; the old
     filter_model column is left empty on new rows (see scoring/CLAUDE.md).
     """
 
     model: str = "local:qwen3.6:27b"
     # Named prompt set from portalanaliz/scoring/prompts.py:PROMPTS.
-    prompt: str = "uv3"
+    prompt: str = "uv4"
     # Same semantics as Settings.focus_tickers; shares the FOCUS_TICKERS var.
     tickers: tuple[str, ...] = ()
     anthropic_api_key: str = ""

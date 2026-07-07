@@ -145,9 +145,9 @@ class OllamaClient(LLMClient):
 
     The OpenAI-compat /v1 endpoint ignores the think toggle, so reasoning
     models (qwen3+, gemma-reasoning) burn thousands of completion tokens
-    thinking before the tiny JSON answer — 10-100x slower. Hitting /api/chat
-    with `think: false` collapses output to just the `{"scores": [...]}` line,
-    which is all the batched pipeline needs. Use for bulk local scoring where
+    thinking before the tiny answer — 10-100x slower. Hitting /api/chat
+    with `think: false` collapses output to just the single digit,
+    which is all the pipeline needs. Use for bulk local scoring where
     the model's own chain-of-thought isn't worth the throughput hit.
     """
 
@@ -295,45 +295,16 @@ def make_client(spec: str, settings: ScoringSettings) -> LLMClient:
                    "(use anthropic:, local:, ollama:, claude: or codex:)")
 
 
-_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
+def parse_score(text: str) -> bool:
+    """Parse a single-post response into a bool.
 
-
-def parse_json_response(text: str) -> dict:
-    """Extract a JSON object from a model response (tolerates code fences,
-    <think> blocks from local reasoning models, and surrounding prose)."""
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    text = re.sub(r"```(?:json)?", "", text)
-    m = _JSON_RE.search(text)
+    The prompt demands a bare digit, but tolerates code fences, <think>
+    blocks from local reasoning models, and stray prose: after stripping
+    those, the first standalone 0 or 1 wins. No digit = LLMError (error row,
+    rescore later with --rerun error)."""
+    t = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    t = re.sub(r"```(?:json)?", "", t).strip()
+    m = re.search(r"(?<!\d)[01](?!\d)", t)
     if not m:
-        raise LLMError(f"no JSON object in response: {text[:200]!r}")
-    return json.loads(m.group(0))
-
-
-def _coerce_binary(value) -> bool:
-    """0/1, "0"/"1", true/false, "true"/"false" -> bool (tolerant of what
-    small local models emit for the batch scoring array)."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    s = str(value).strip().lower()
-    if s in ("1", "true", "yes", "tak"):
-        return True
-    if s in ("0", "false", "no", "nie", ""):
-        return False
-    raise LLMError(f"not a 0/1 value: {value!r}")
-
-
-def parse_scores(text: str, expected: int) -> list[bool]:
-    """Parse a batch response {"scores": [0, 1, ...]} into `expected` bools.
-
-    Raises LLMError if the array is missing or its length doesn't match the
-    batch size — so a malformed batch becomes error rows, not silent misalign-
-    ment of signals to posts."""
-    data = parse_json_response(text)
-    scores = data.get("scores")
-    if not isinstance(scores, list):
-        raise LLMError(f"response has no 'scores' array: {str(data)[:200]!r}")
-    if len(scores) != expected:
-        raise LLMError(f"expected {expected} scores, got {len(scores)}: {scores!r}")
-    return [_coerce_binary(s) for s in scores]
+        raise LLMError(f"no 0/1 answer in response: {text[:200]!r}")
+    return m.group(0) == "1"

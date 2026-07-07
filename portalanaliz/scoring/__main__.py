@@ -11,7 +11,7 @@ Config comes from .env (SCORING_MODEL, SCORING_PROMPT, FOCUS_TICKERS) and can
 be overridden per run:
 
     --model local:qwen3.6:27b
-    --prompt uv3                     --tickers SNT,VOT   (empty string = all)
+    --prompt uv4                     --tickers SNT,VOT   (empty string = all)
     --workers 5                      # concurrent LLM workers (default 1)
 
 A config is (prompt, model); changing either scores posts fresh under the new

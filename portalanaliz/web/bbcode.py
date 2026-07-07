@@ -14,7 +14,10 @@ QUOTE_RE = re.compile(
     r'\[quote(?:[=\s][^\]]*)?\](?P<body>(?:(?!\[/?quote).)*?)\[/quote\]',
     re.IGNORECASE | re.DOTALL,
 )
-QUOTE_NAME_RE = re.compile(r'\[quote=&quot;?([^&\]]+?)&quot;?[\]\s]', re.IGNORECASE)
+QUOTE_NAME_RE = re.compile(r'\[quote(?:=| [^\]]*?name=)&quot;?([^&\]]+?)&quot;?[\]\s]',
+                           re.IGNORECASE)
+QUOTE_OPEN_RE = re.compile(r'\[quote[^\]]*\]', re.IGNORECASE)
+QUOTE_CLOSE_RE = re.compile(r'\[/quote\]', re.IGNORECASE)
 IMG_RE = re.compile(r'\[img[^\]]*\](.*?)\[/img\]', re.IGNORECASE | re.DOTALL)
 URL_WITH_TEXT_RE = re.compile(r'\[url=(?:&quot;)?([^\]&]+?)(?:&quot;)?\](.*?)\[/url\]',
                               re.IGNORECASE | re.DOTALL)
@@ -77,15 +80,28 @@ def render(content: str, attachments: list[dict] | None = None) -> str:
     text = URL_BARE_RE.sub(url_bare_sub, text)
 
     # Quotes, innermost first so nesting works.
+    def quote_cite(tag: str) -> str:
+        name_match = QUOTE_NAME_RE.match(tag)
+        return f"<cite>{name_match.group(1)}</cite>" if name_match else ""
+
     def quote_sub(m: re.Match) -> str:
-        name_match = QUOTE_NAME_RE.match(m.group(0))
-        cite = f"<cite>{name_match.group(1)}</cite>" if name_match else ""
-        return stash("<blockquote>") + cite + m.group("body") + stash("</blockquote>")
+        return (stash("<blockquote>") + quote_cite(m.group(0))
+                + m.group("body") + stash("</blockquote>"))
 
     for _ in range(6):
         text, n = QUOTE_RE.subn(quote_sub, text)
         if n == 0:
             break
+
+    # Unbalanced quote tags (Tapatalk truncates long posts mid-quote):
+    # treat a stray opener as a blockquote running to the end of the post,
+    # and drop stray closers.
+    def quote_open_sub(m: re.Match) -> str:
+        return stash("<blockquote>") + quote_cite(m.group(0))
+
+    text, n_open = QUOTE_OPEN_RE.subn(quote_open_sub, text)
+    text = QUOTE_CLOSE_RE.sub("", text)
+    text += stash("</blockquote>") * n_open
 
     for tag, repl in SIMPLE_TAGS.items():
         text = re.sub(rf'\[{tag}\]', stash(f"<{repl}>"), text, flags=re.IGNORECASE)

@@ -50,8 +50,10 @@ topic's own `ticker_hint` (no per-post ticker/reason extraction anymore).
 - Provider-agnostic: model specs are `provider:model`. Providers:
   `anthropic` (API, needs ANTHROPIC_API_KEY); `local` (OpenAI-compatible
   /chat/completions — Ollama, LM Studio, vLLM at `LOCAL_LLM_BASE_URL`);
-  `claude` (headless `claude -p` CLI). Everything after the first colon is the
-  model name, so Ollama tags like `local:qwen3:8b` work. New providers go in
+  `claude` (headless `claude -p` CLI); `codex` (headless `codex exec` CLI,
+  OpenAI GPT-5.x, read-only sandbox — no token usage exposed so cost logs $0).
+  Everything after the first colon is the model name, so Ollama tags like
+  `local:qwen3:8b` and `codex:gpt-5.5` work. New providers go in
   `llm.py:make_client`.
 - Quoted BBCode blocks are stripped before scoring — quotes are other
   people's words.

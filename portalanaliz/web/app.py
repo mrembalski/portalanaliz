@@ -275,11 +275,22 @@ def _momentum_rows(session: Session, window: int = 12, span: int = 60,
     return out
 
 
+MOMENTUM_SORTS = {
+    "heat": lambda r: r["heat"],
+    "posts": lambda r: r["posts_window"],
+    "uv": lambda r: r["uv_recent"] if r["uv_recent"] is not None else -1,
+    "ticker": lambda r: r["ticker"],
+}
+
+
 @app.get("/momentum")
 def momentum(request: Request, config: list[str] = Query(default=[]),
-             session: Session = Depends(db)):
+             sort: str = "heat", session: Session = Depends(db)):
+    sort = sort if sort in MOMENTUM_SORTS else "heat"
+    rows = _momentum_rows(session, configs=_resolve_configs(config))
+    rows.sort(key=MOMENTUM_SORTS[sort], reverse=sort != "ticker")
     return templates.TemplateResponse(request, "momentum.html", {
-        "rows": _momentum_rows(session, configs=_resolve_configs(config))[:50],
+        "rows": rows, "sort": sort,
         "configs": _scoring_configs(session), "config_keys": config,
     })
 

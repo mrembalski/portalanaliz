@@ -9,7 +9,7 @@ share of that month's analyzed posts calling the stock undervalued:
 <span style="color:#64748b">■ 0%</span>
 <span style="color:#3d8b6a">■ 50%</span>
 <span style="color:#16a34a">■ 100%</span>.
-Heat = latest level ÷ window average. Sorted by heat, hottest first.</p>
+Heat = latest level ÷ window average. Click a column header to sort.</p>
 
 {% if configs %}
 <form method="get" action="/momentum" style="margin:0 0 12px">
@@ -21,6 +21,7 @@ Heat = latest level ÷ window average. Sorted by heat, hottest first.</p>
       {{ c.label }} <span class="muted">({{ c.scored }} scored){% if c.is_active %} · active{% endif %}</span></label>
     {% endfor %}
   </div>
+  <input type="hidden" name="sort" value="{{ sort }}">
   <div style="margin-top:8px">
     <button type="submit">Apply</button>
     {% if config_keys %}<a href="/momentum" class="muted" style="margin-left:10px">reset to active config</a>{% endif %}
@@ -30,7 +31,10 @@ Heat = latest level ÷ window average. Sorted by heat, hottest first.</p>
 
 {% if rows %}
 <table>
-  <tr><th>Ticker</th><th>Discussion level (12m rolling, 5y)</th><th>Heat</th><th>Posts (12m)</th><th>Undervalued (12m)</th></tr>
+  {% macro sort_th(key, label) -%}
+  <th>{% if sort == key %}{{ label }} ▾{% else %}<a href="/momentum?sort={{ key }}{% for k in config_keys %}&amp;config={{ k }}{% endfor %}">{{ label }}</a>{% endif %}</th>
+  {%- endmacro %}
+  <tr>{{ sort_th("ticker", "Ticker") }}<th>Discussion level (12m rolling, 5y)</th>{{ sort_th("heat", "Heat") }}{{ sort_th("posts", "Posts (12m)") }}{{ sort_th("uv", "Undervalued (12m)") }}</tr>
   {% for r in rows %}
   <tr>
     <td><a href="/stocks/{{ r.ticker }}"><span class="badge">{{ r.ticker }}</span></a></td>

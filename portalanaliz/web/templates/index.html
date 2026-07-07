@@ -27,15 +27,15 @@ Scoring: {{ scoring.undervalued }} undervalued / {{ scoring.scored }} analyzed /
 </form>
 {% endif %}
 <table>
-  <tr><th>Ticker</th><th>Activity derivative</th><th>Trend</th><th>Undervalued (12m)</th></tr>
+  <tr><th>Ticker</th><th>Discussion level</th><th>Heat</th><th>Undervalued (12m)</th></tr>
   {% for r in hot %}
   <tr>
     <td><a href="/stocks/{{ r.ticker }}"><span class="badge">{{ r.ticker }}</span></a></td>
     <td><svg width="{{ r.w }}" height="{{ r.h }}" style="display:block">
-      {% if r.zero_y is not none %}<line x1="{{ r.x0 }}" y1="{{ r.zero_y }}" x2="{{ r.w }}" y2="{{ r.zero_y }}" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="3,3"/>{% endif %}
+      {% if r.base_y is not none %}<line x1="{{ r.x0 }}" y1="{{ r.base_y }}" x2="{{ r.w }}" y2="{{ r.base_y }}" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="3,3"/>{% endif %}
       {% for x1, y1, x2, y2, color in r.segments %}<line x1="{{ x1 }}" y1="{{ y1 }}" x2="{{ x2 }}" y2="{{ y2 }}" stroke="{{ color }}" stroke-width="2" stroke-linecap="round"/>{% endfor %}
     </svg></td>
-    <td>📈 +{{ r.trend }}</td>
+    <td>🔥 {{ r.heat }}×</td>
     <td>{% if r.uv_recent is not none %}{{ "%.0f"|format(100 * r.uv_recent) }}%{% else %}<span class="muted">not scored</span>{% endif %}</td>
   </tr>
   {% endfor %}

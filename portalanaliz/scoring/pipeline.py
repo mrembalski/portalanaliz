@@ -1,4 +1,4 @@
-"""Scoring pipeline: free prefilter -> one batched LLM undervaluation call.
+"""Scoring pipeline: one batched LLM undervaluation call per BATCH_SIZE posts.
 
 Output per scored post is a binary undervaluation signal (post_scores.undervalued)
 plus the tickers it applies to (defaulting to the topic's own stock, since the
@@ -7,12 +7,12 @@ batched call returns only 0/1 per post).
 There is a single LLM stage: posts are sent to the model in BATCHES (up to
 BATCH_SIZE at a time) and it returns one 0/1 per post. The old two-stage
 "relevance filter -> extract" design is gone; a chit-chat post just scores 0.
-The free length/keyword prefilter (textutil) still runs and never costs tokens.
+Every post goes to the LLM — the old length/keyword prefilter is gone too.
 
 Resumable by construction: a post is "done" when a post_scores row exists for
 the active config (prompt set + model); each batch commits its rows together,
 so a killed run loses at most one in-flight batch (BATCH_SIZE posts).
---limit caps LLM-scored posts per run (free prefilter skips don't count).
+--limit caps LLM-scored posts per run.
 Switching prompt or model = a new config = a fresh scoring pass; old rows
 stay for comparison. FOCUS_TICKERS restricts work to those topics.
 
@@ -37,7 +37,7 @@ from portalanaliz.core.db import SessionLocal
 from portalanaliz.core.models import Post, PostScore, Topic
 from portalanaliz.scoring import prompts
 from portalanaliz.scoring.llm import LLMClient, LLMError, make_client, parse_scores
-from portalanaliz.scoring.textutil import MIN_CHARS, has_analysis_signal, strip_bbcode
+from portalanaliz.scoring.textutil import strip_bbcode
 
 log = logging.getLogger(__name__)
 
@@ -45,11 +45,11 @@ log = logging.getLogger(__name__)
 # 0/1 per post.
 BATCH_SIZE = 5
 
-_STAT_KEYS = ("skipped_short", "skipped_keywords", "scored",
-              "undervalued", "error", "input_tokens", "output_tokens", "cost_usd")
+_STAT_KEYS = ("scored", "undervalued", "error",
+              "input_tokens", "output_tokens", "cost_usd")
 
-# A row for the active (filterless) config: filter_model is always "".
-_Prefiltered = tuple[Post, "Topic | None", str]
+# Post + its topic + BBCode-stripped text, ready for the LLM.
+_Prepared = tuple[Post, "Topic | None", str]
 
 
 def _new_stats() -> dict:
@@ -87,8 +87,8 @@ def score_posts(session: Session, settings: ScoringSettings,
     """Process unscored posts. Returns counters incl. token/cost totals.
 
     `workers` > 1 runs the batched LLM calls concurrently (each worker uses its
-    own DB session and its own client). The free prefilter and the resumability
-    invariant (one committed batch of rows) are unchanged."""
+    own DB session and its own client). The resumability invariant (one
+    committed batch of rows) is unchanged."""
     prompt_set = prompts.get_prompts(settings.prompt)
     stats = _new_stats()
     if workers > 1:
@@ -98,23 +98,10 @@ def score_posts(session: Session, settings: ScoringSettings,
     return stats
 
 
-def _prefilter(session: Session, settings: ScoringSettings, posts: list[Post],
-               topics: dict[str, Topic], stats: dict) -> list[_Prefiltered]:
-    """Free gate (no tokens): drop short / keyword-less posts, committing a
-    skip row for each so they don't reappear. Returns the LLM-bound survivors."""
-    survivors: list[_Prefiltered] = []
-    for post in posts:
-        text = strip_bbcode(post.content)
-        if len(text) < MIN_CHARS:
-            _save(session, settings, post, "skipped_short")
-            stats["skipped_short"] += 1
-            continue
-        if not has_analysis_signal(text):
-            _save(session, settings, post, "skipped_keywords")
-            stats["skipped_keywords"] += 1
-            continue
-        survivors.append((post, topics.get(post.topic_id), text))
-    return survivors
+def _prepare(posts: list[Post], topics: dict[str, Topic]) -> list[_Prepared]:
+    """Attach topic + stripped text to each post; everything goes to the LLM."""
+    return [(post, topics.get(post.topic_id), strip_bbcode(post.content))
+            for post in posts]
 
 
 def _chunks(seq: list, n: int) -> Iterator[list]:
@@ -138,9 +125,8 @@ def _score_sequential(session: Session, settings: ScoringSettings,
             posts = unscored_posts(session, settings)
             if not posts:
                 break
-            survivors = _prefilter(session, settings, posts,
-                                   _topics_for(session, posts), stats)
-            for group in _chunks(survivors, BATCH_SIZE):
+            prepared = _prepare(posts, _topics_for(session, posts))
+            for group in _chunks(prepared, BATCH_SIZE):
                 if limit is not None:
                     remaining = limit - llm_posts
                     if remaining <= 0:
@@ -159,12 +145,12 @@ def _score_sequential(session: Session, settings: ScoringSettings,
 def _score_parallel(session: Session, settings: ScoringSettings,
                     prompt_set: prompts.PromptSet, stats: dict,
                     limit: int | None, workers: int) -> None:
-    """Prefilter in the main thread (free skips committed immediately); fan the
-    batches out to a thread pool. Each DB batch is drained before the next is
-    fetched, so `unscored_posts` never re-hands a post already in flight."""
+    """Fan the batches out to a thread pool. Each DB batch is drained before
+    the next is fetched, so `unscored_posts` never re-hands a post already in
+    flight."""
     tl = threading.local()
 
-    def worker(group: list[_Prefiltered]) -> dict:
+    def worker(group: list[_Prepared]) -> dict:
         if not hasattr(tl, "client"):
             tl.client = make_client(settings.model, settings)
         delta = _new_stats()
@@ -181,10 +167,9 @@ def _score_parallel(session: Session, settings: ScoringSettings,
             posts = unscored_posts(session, settings)
             if not posts:
                 break
-            survivors = _prefilter(session, settings, posts,
-                                   _topics_for(session, posts), stats)
+            prepared = _prepare(posts, _topics_for(session, posts))
             futures = []
-            for group in _chunks(survivors, BATCH_SIZE):
+            for group in _chunks(prepared, BATCH_SIZE):
                 if limit is not None:
                     remaining = limit - llm_posts
                     if remaining <= 0:
@@ -203,7 +188,7 @@ def _score_parallel(session: Session, settings: ScoringSettings,
 
 def _score_batch(session: Session, settings: ScoringSettings,
                  prompt_set: prompts.PromptSet, client: LLMClient,
-                 group: list[_Prefiltered], stats: dict) -> None:
+                 group: list[_Prepared], stats: dict) -> None:
     """One LLM call for up to BATCH_SIZE posts; write one row per post."""
     rows = [_new_row(settings, post, "error") for post, _, _ in group]
     try:
@@ -248,11 +233,6 @@ def _new_row(settings: ScoringSettings, post: Post, status: str) -> PostScore:
     return PostScore(post_id=post.id, prompt_version=settings.prompt, status=status,
                      filter_model="", extract_model=settings.model,
                      input_tokens=0, output_tokens=0, cost_usd=0.0)
-
-
-def _save(session: Session, settings: ScoringSettings, post: Post, status: str) -> None:
-    session.add(_new_row(settings, post, status))
-    session.commit()
 
 
 def _split_usage(rows: list[PostScore], r) -> None:

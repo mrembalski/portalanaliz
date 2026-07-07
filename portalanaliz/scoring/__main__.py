@@ -88,7 +88,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="LLM scoring of archived posts")
     parser.add_argument("command", choices=["score", "rollup", "stats", "prompts", "all"])
     parser.add_argument("--limit", type=int, default=None,
-                        help="max posts sent to the LLM this run (skips are free)")
+                        help="max posts sent to the LLM this run")
     parser.add_argument("--workers", type=int, default=1,
                         help="concurrent LLM workers (each its own DB session); "
                              "default 1 = sequential")

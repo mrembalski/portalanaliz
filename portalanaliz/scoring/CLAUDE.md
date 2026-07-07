@@ -1,9 +1,10 @@
 # Scoring module notes
 
 Goal: binary UNDERVALUATION SIGNAL per post — not company scoring. Pipeline per
-post: free prefilter (length >= 200 chars stripped, Polish analysis keywords)
--> ONE batched LLM undervaluation call (`undervalued` 0/1 per post) -> per-ticker
-rollup counting undervalued posts vs posts analyzed into `stock_scores`.
+post: ONE batched LLM undervaluation call (`undervalued` 0/1 per post) ->
+per-ticker rollup counting undervalued posts vs posts analyzed into
+`stock_scores`. The old free prefilter (length/keywords) is gone — every post
+goes to the LLM.
 
 There is a SINGLE LLM stage. The old two-stage "relevance filter -> extract"
 design is gone: chit-chat just scores 0, decided by the same call. Posts go to
@@ -33,18 +34,18 @@ topic's own `ticker_hint` (no per-post ticker/reason extraction anymore).
 - Reruns are explicit and config-scoped: `--rerun all` or
   `--rerun <status,...>` drops the ACTIVE config's matching rows (honoring
   the ticker scope) before scoring; other configs are never touched.
-  `--retry-errors` = `--rerun error`. Statuses: `skipped_short`,
-  `skipped_keywords`, `scored`, `error` (`chit_chat` is legacy — no longer
+  `--retry-errors` = `--rerun error`. Statuses: `scored`, `error`
+  (`chit_chat`, `skipped_short`, `skipped_keywords` are legacy — no longer
   produced).
 - `FOCUS_TICKERS` (shared with the scraper) narrows scoring to topics with
   those ticker_hints; empty = whole archive. CLI `--tickers` overrides.
 - One commit per BATCH — a killed run loses at most the in-flight batch
   (<= BATCH_SIZE posts). This holds under `--workers N` too: N concurrent
-  workers, each with its own DB session and client; the prefilter runs in the
-  main thread and each DB batch is drained before the next is fetched, so no
-  post is handed out twice. Default `--workers 1` = sequential.
-- `--limit N` counts only posts that reach the LLM; prefilter skips are free
-  and unlimited. A batch is trimmed so the limit isn't overshot.
+  workers, each with its own DB session and client; each DB batch is drained
+  before the next is fetched, so no post is handed out twice. Default
+  `--workers 1` = sequential.
+- `--limit N` caps posts sent to the LLM; a batch is trimmed so the limit
+  isn't overshot.
 - Per-post token/cost is the batch call's usage split evenly across its posts
   (remainder to the first row); the run's stat totals use the real call usage.
 - Provider-agnostic: model specs are `provider:model`. Providers:

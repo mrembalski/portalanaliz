@@ -109,7 +109,7 @@ class PostScore(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     post_id: Mapped[str] = mapped_column(String, ForeignKey("posts.id"), index=True)
     prompt_version: Mapped[str] = mapped_column(String, index=True)
-    # skipped_short | skipped_keywords | chit_chat | scored | error
+    # scored | error (skipped_short/skipped_keywords/chit_chat are legacy)
     status: Mapped[str] = mapped_column(String, index=True)
     is_analysis: Mapped[bool] = mapped_column(Boolean, default=False)
     # The signal: does the post argue the stock is undervalued? (None = not scored)

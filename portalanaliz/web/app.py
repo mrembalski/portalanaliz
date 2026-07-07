@@ -285,7 +285,7 @@ MOMENTUM_SORTS = {
 
 @app.get("/momentum")
 def momentum(request: Request, config: list[str] = Query(default=[]),
-             sort: str = "heat", min_recent: int = 0,
+             sort: str = "heat", min_recent: int = 10,
              session: Session = Depends(db)):
     sort = sort if sort in MOMENTUM_SORTS else "heat"
     rows = _momentum_rows(session, configs=_resolve_configs(config))
